@@ -1595,9 +1595,9 @@
       id: 'V012', name: 'SRI NATHAWEE',
       operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
       shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
-      iacsClass: 'TG', yearBuilt: 1994,
+      iacsClass: 'TG', yearBuilt: 2002,
       product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 6173,
-      imo: 'IMO 9100012', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      imo: 'IMO 9267833', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
       status: 'docked', statusTh: 'จอดเทียบท่า',
       lat: 7.1896, lng: 100.5954, speed: 0, heading: 315,
       cargo: 'น้ำมันเตา 2,500 ตัน', origin: 'มาบตาพุด', destination: 'สงขลา',
@@ -3385,6 +3385,187 @@
     document.getElementById('btnResetConfig').addEventListener('click', resetConfig);
   }
 
+  // ============ AISSTREAM.IO REAL-TIME DATA ============
+  var VESSEL_MMSI_MAP = {
+    '567072700': 'TRANS NOPPAKAO',
+    '567002130': 'PATARAVARIN 4',
+    '567001572': 'BIG SEA 17',
+    '567001590': 'MT.BIGSEA 20',
+    '567585000': 'SRIPHUNPIN',
+    '567002840': 'SRILAMPHU',
+    '567586000': 'SRIPHUMRIANG',
+    '567524000': 'SRI TAPEE',
+    '567073900': 'SRI NATHAWEE',
+    '567067800': 'MT.SRIKHIRICHAD',
+    '567003120': 'BSTHEPHA',
+    '567064100': 'MT.SRIPHUKET',
+    '567579000': 'MT.SRICHAIYA',
+    '567002730': 'MT.SRITAHPHET',
+    '567001580': 'MT.SRINARA',
+    '567228000': 'SIRITHANA',
+    '567069600': 'M.T.SRISURAT',
+    '567559000': 'MT.SRIKANCHANADIT',
+    '567551000': 'MT.SRIDONSAK',
+    '567002620': 'B.P.P. 202',
+    '567072200': 'GRACEKORAKOT',
+    '567070400': 'SMOOTHSEA 30',
+    '567063800': 'MT.CHALAKARN',
+    '567002490': 'MT.PILATUS 50',
+    '567000640': 'MT.PP 3',
+    '567292000': 'MT.PILATUS 33',
+    '567002160': 'SMOOTHSEA 21',
+    '567002330': 'MT.P.PATARATHIDA',
+    '567002230': 'MT.PP 7',
+    '567003140': 'MT.PILATUS 59',
+    '567000670': 'MT.PILATUS 28',
+    '567000734': 'MT.PILATUS 42',
+    '567000929': 'MT.PILATUS 44',
+    '567000521': 'MT.PILATUS 45',
+    '567002270': 'MT.PILATUS 46',
+    '567000423': 'MT.PILATUS 35',
+    '567071700': 'MT.PILATUS 55'
+  };
+
+  var aisStreamWs = null;
+  var aisConnected = false;
+  var aisUpdateCount = 0;
+  var aisLastUpdate = null;
+
+  function connectAisStream() {
+    var apiKey = 'df425f8358aeac449f5e909404d5bb1a60dbff7c';
+    var mmsiList = Object.keys(VESSEL_MMSI_MAP).map(function(m) { return parseInt(m); });
+
+    try {
+      aisStreamWs = new WebSocket('wss://stream.aisstream.io/v0/stream');
+    } catch(e) {
+      console.log('AIS WebSocket error:', e);
+      return;
+    }
+
+    aisStreamWs.onopen = function() {
+      aisConnected = true;
+      aisUpdateCount = 0;
+      updateAisStatus();
+
+      // Subscribe with MMSI filter for Gulf of Thailand area
+      var subscribeMsg = {
+        "APIKey": apiKey,
+        "BoundingBoxes": [[[5.0, 97.0], [14.0, 106.0]]],
+        "FiltersShipMMSI": mmsiList,
+        "FilterMessageTypes": ["PositionReport"]
+      };
+      aisStreamWs.send(JSON.stringify(subscribeMsg));
+      console.log('AIS Stream connected, subscribed to ' + mmsiList.length + ' vessels');
+    };
+
+    aisStreamWs.onmessage = function(event) {
+      try {
+        var data = JSON.parse(event.data);
+        if (data.MessageType === 'PositionReport') {
+          var msg = data.Message.PositionReport;
+          var meta = data.MetaData;
+          var mmsi = String(meta.MMSI);
+          var vesselName = VESSEL_MMSI_MAP[mmsi];
+
+          if (vesselName) {
+            // Find vessel in our array and update position
+            for (var i = 0; i < vessels.length; i++) {
+              if (vessels[i].name === vesselName) {
+                var oldLat = vessels[i].lat;
+                var oldLng = vessels[i].lng;
+
+                // Update position
+                vessels[i].lat = msg.Latitude;
+                vessels[i].lng = msg.Longitude;
+                vessels[i].speed = msg.Sog; // Speed over ground
+                vessels[i].heading = msg.TrueHeading || msg.Cog || 0;
+                vessels[i].lastUpdate = new Date();
+                vessels[i].dataSource = 'ais';
+
+                // Update status based on speed
+                if (msg.Sog > 0.5) {
+                  vessels[i].status = 'sailing';
+                  vessels[i].statusTh = 'กำลังแล่น';
+                } else {
+                  vessels[i].status = 'docked';
+                  vessels[i].statusTh = 'จอดเทียบท่า';
+                }
+
+                // Update trail
+                if (!vessels[i].trail) vessels[i].trail = [];
+                if (oldLat !== msg.Latitude || oldLng !== msg.Longitude) {
+                  vessels[i].trail.push({ lat: oldLat, lng: oldLng });
+                  if (vessels[i].trail.length > 10) vessels[i].trail.shift();
+                }
+
+                // Update marker on map
+                if (markers[vessels[i].id]) {
+                  markers[vessels[i].id].setLatLng([msg.Latitude, msg.Longitude]);
+                  markers[vessels[i].id].setIcon(createShipIcon(statusColors[vessels[i].status], vessels[i].heading, selectedVesselId === vessels[i].id));
+                }
+
+                aisUpdateCount++;
+                aisLastUpdate = new Date();
+
+                console.log('AIS Update: ' + vesselName + ' → ' + msg.Latitude.toFixed(4) + ', ' + msg.Longitude.toFixed(4) + ' | Speed: ' + msg.Sog + ' kn');
+                break;
+              }
+            }
+          }
+        }
+      } catch(e) {
+        console.log('AIS parse error:', e);
+      }
+
+      // Refresh sidebar every 10 updates
+      if (aisUpdateCount % 10 === 0 && aisUpdateCount > 0) {
+        renderVesselList();
+        updateAisStatus();
+      }
+    };
+
+    aisStreamWs.onerror = function(e) {
+      console.log('AIS WebSocket error:', e);
+      aisConnected = false;
+      updateAisStatus();
+    };
+
+    aisStreamWs.onclose = function() {
+      console.log('AIS WebSocket closed, reconnecting in 10s...');
+      aisConnected = false;
+      updateAisStatus();
+      setTimeout(connectAisStream, 10000);
+    };
+  }
+
+  function updateAisStatus() {
+    // Update header datasource indicator
+    var dsName = document.getElementById('dsName');
+    var dsDot = document.getElementById('dsDot');
+    if (dsName && dsDot) {
+      if (aisConnected) {
+        dsName.textContent = 'AIS Live';
+        dsDot.className = 'ds-dot connected';
+      } else {
+        dsName.textContent = 'AIS Offline';
+        dsDot.className = 'ds-dot disconnected';
+      }
+    }
+
+    // Update dataSourceConfig
+    if (aisConnected) {
+      dataSourceConfig.provider = 'aisstream.io';
+      dataSourceConfig.providerType = 'ais';
+      dataSourceConfig.status = 'connected';
+      dataSourceConfig.dataMode = 'ข้อมูลเรือจริง (AIS Real-time)';
+      dataSourceConfig.signalQuality = 'ดีเยี่ยม';
+      if (aisLastUpdate) {
+        dataSourceConfig.lastSync = aisLastUpdate;
+        dataSourceConfig.lastPositionUpdate = aisLastUpdate;
+      }
+    }
+  }
+
   // ============ INIT ============
   window.addEventListener('DOMContentLoaded', function() {
     // Save default configs before any LS override
@@ -3405,6 +3586,8 @@
     renderVesselList();
     bindEvents();
     bindAdminEvents();
+    // Connect to AIS Stream for real-time vessel positions
+    setTimeout(connectAisStream, 2000);
     updateTime();
     setInterval(updateTime, 1000);
 
