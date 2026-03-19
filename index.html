@@ -1,0 +1,3427 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OR Vessel Location Tracking</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #003399;
+    --primary-dark: #002266;
+    --primary-light: #1a4db3;
+    --accent: #FF6600;
+    --accent-light: #ff8533;
+    --bg-dark: #0a1628;
+    --bg-sidebar: #f5f7fb;
+    --text-dark: #1a1a2e;
+    --text-light: #6b7280;
+    --border: #e2e8f0;
+    --success: #10b981;
+    --info: #3b82f6;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --sailing: #10b981;
+    --docked: #3b82f6;
+    --waiting: #f59e0b;
+    --maintenance: #ef4444;
+    --sidebar-width: 340px;
+  }
+
+  body {
+    font-family: 'Sarabun', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg-dark);
+  }
+
+  /* Loading Overlay */
+  #loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-dark);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    transition: opacity 0.6s ease;
+  }
+  #loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+  .loader-logo {
+    font-size: 48px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: 4px;
+  }
+  .loader-logo span { color: var(--accent); }
+  .loader-subtitle {
+    color: #8899bb;
+    font-size: 16px;
+    margin-bottom: 40px;
+    letter-spacing: 2px;
+  }
+  .loader-ring {
+    width: 60px; height: 60px;
+    border: 4px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loader-dots {
+    margin-top: 24px;
+    display: flex;
+    gap: 8px;
+  }
+  .loader-dots span {
+    width: 8px; height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: dotPulse 1.4s ease-in-out infinite;
+  }
+  .loader-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .loader-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dotPulse {
+    0%,80%,100% { transform: scale(0.4); opacity: 0.3; }
+    40% { transform: scale(1); opacity: 1; }
+  }
+
+  /* Header */
+  header {
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 56px;
+    flex-shrink: 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    z-index: 1000;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .logo {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo span { color: var(--accent); }
+  .logo-divider {
+    width: 1px;
+    height: 28px;
+    background: rgba(255,255,255,0.25);
+    margin: 0 4px;
+  }
+  .header-title {
+    font-size: 16px;
+    font-weight: 400;
+    opacity: 0.9;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 13px;
+  }
+  .refresh-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.1);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+  }
+  .refresh-indicator .dot {
+    width: 8px; height: 8px;
+    background: var(--success);
+    border-radius: 50%;
+    animation: blink 2s infinite;
+  }
+  @keyframes blink { 0%,100%{ opacity:1; } 50%{ opacity:0.3; } }
+  .header-time { opacity: 0.8; font-size: 13px; }
+
+  /* Stats Bar */
+  .stats-bar {
+    background: linear-gradient(135deg, #0d1f3c 0%, #162d50 100%);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    height: 44px;
+    flex-shrink: 0;
+    gap: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    overflow-x: auto;
+  }
+  .stat-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #c0ccdd;
+    white-space: nowrap;
+  }
+  .stat-item .stat-count {
+    font-weight: 700;
+    font-size: 18px;
+    color: #fff;
+  }
+  .stat-item .stat-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .stat-item.total { background: rgba(255,255,255,0.06); }
+  .stat-divider {
+    width: 1px;
+    height: 24px;
+    background: rgba(255,255,255,0.1);
+    margin: 0 8px;
+  }
+
+  /* Main Content */
+  .main-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: var(--sidebar-width);
+    background: var(--bg-sidebar);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    flex-shrink: 0;
+    z-index: 500;
+    transition: transform 0.3s ease;
+  }
+  .sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    background: #fff;
+  }
+  .search-box {
+    position: relative;
+    margin-bottom: 12px;
+  }
+  .search-box i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    font-size: 14px;
+  }
+  .search-box input {
+    width: 100%;
+    padding: 10px 12px 10px 38px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 14px;
+    background: var(--bg-sidebar);
+    transition: all 0.2s;
+    outline: none;
+  }
+  .search-box input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0,51,153,0.1);
+    background: #fff;
+  }
+
+  .filter-section {
+    margin-bottom: 0;
+  }
+  .filter-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-light);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+  .filter-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .filter-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1.5px solid var(--border);
+    background: #fff;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .filter-chip:hover { border-color: var(--primary); }
+  .filter-chip.active {
+    border-color: var(--primary);
+    background: rgba(0,51,153,0.06);
+    color: var(--primary);
+    font-weight: 500;
+  }
+  .filter-chip .chip-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .filter-chip input { display: none; }
+
+  .type-filter {
+    margin-top: 10px;
+  }
+  .type-filter select, .company-filter select {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    background: #fff;
+    outline: none;
+    cursor: pointer;
+  }
+  .type-filter select:focus, .company-filter select:focus {
+    border-color: var(--primary);
+  }
+  .company-filter {
+    margin-top: 10px;
+  }
+
+  /* Vessel List */
+  .vessel-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .vessel-list::-webkit-scrollbar { width: 5px; }
+  .vessel-list::-webkit-scrollbar-track { background: transparent; }
+  .vessel-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+  .vessel-card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1.5px solid transparent;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .vessel-card:hover {
+    border-color: var(--primary);
+    box-shadow: 0 4px 12px rgba(0,51,153,0.1);
+    transform: translateY(-1px);
+  }
+  .vessel-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 4px 16px rgba(255,102,0,0.15);
+    background: #fffaf5;
+  }
+  .vessel-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .vessel-name {
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-dark);
+  }
+  .vessel-status-badge {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 12px;
+    white-space: nowrap;
+  }
+  .badge-sailing { background: #d1fae5; color: #065f46; }
+  .badge-docked { background: #dbeafe; color: #1e40af; }
+  .badge-waiting { background: #fef3c7; color: #92400e; }
+  .badge-maintenance { background: #fee2e2; color: #991b1b; }
+
+  .vessel-card-company {
+    font-size: 11px;
+    color: var(--text-light);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .vessel-card-company .company-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .vessel-card-body {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-light);
+  }
+  .vessel-card-body .route {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .vessel-card-body .route i { font-size: 10px; color: var(--accent); }
+  .vessel-card-body .speed { font-weight: 500; color: var(--text-dark); }
+
+  .vessel-card-footer {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f1f5f9;
+    font-size: 11px;
+    color: var(--text-light);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Map */
+  .map-container {
+    flex: 1;
+    position: relative;
+  }
+  #map {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Vessel Popup */
+  .vessel-popup {
+    font-family: 'Sarabun', sans-serif;
+    min-width: 280px;
+  }
+  .vessel-popup .popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--accent);
+  }
+  .vessel-popup .popup-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  .vessel-popup .popup-status {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+  }
+  .vessel-popup .popup-company {
+    font-size: 12px;
+    color: var(--text-light);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .vessel-popup .popup-company .company-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .vessel-popup .popup-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 16px;
+  }
+  .vessel-popup .popup-item {
+    font-size: 13px;
+  }
+  .vessel-popup .popup-label {
+    color: var(--text-light);
+    font-size: 11px;
+  }
+  .vessel-popup .popup-value {
+    font-weight: 500;
+    color: var(--text-dark);
+  }
+  .vessel-popup .popup-route {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .vessel-popup .popup-route i {
+    color: var(--accent);
+  }
+  .vessel-popup .popup-eta {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-light);
+  }
+
+  /* Leaflet custom */
+  .leaflet-popup-content-wrapper {
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    padding: 0;
+  }
+  .leaflet-popup-content {
+    margin: 16px;
+  }
+  .leaflet-popup-close-button {
+    color: #6b7280 !important;
+    font-size: 20px !important;
+    padding: 6px 10px !important;
+  }
+
+  /* Mobile sidebar toggle */
+  .sidebar-toggle {
+    display: none;
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 600;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    font-size: 18px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  @media (max-width: 768px) {
+    .sidebar {
+      position: absolute;
+      top: 0; left: 0;
+      height: 100%;
+      transform: translateX(-100%);
+      z-index: 900;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-toggle { display: flex; align-items: center; justify-content: center; }
+    .stats-bar { padding: 0 12px; }
+    .stat-item { padding: 4px 10px; }
+  }
+
+  /* Route info box */
+  .route-info-box {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    background: #fff;
+    border-radius: 14px;
+    padding: 16px 20px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    z-index: 500;
+    min-width: 220px;
+    display: none;
+    font-size: 13px;
+  }
+  .route-info-box .ri-title {
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  .route-info-box .ri-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .route-info-box .ri-label { color: var(--text-light); }
+  .route-info-box .ri-value { font-weight: 600; }
+  .route-info-box .ri-close {
+    position: absolute;
+    top: 8px; right: 12px;
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    color: #9ca3af;
+  }
+
+  /* Data Source Indicator in Header */
+  .header-datasource {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,255,255,0.1);
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: default;
+  }
+  .header-datasource .ds-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .header-datasource .ds-dot.connected { background: var(--success); }
+  .header-datasource .ds-dot.disconnected { background: var(--danger); }
+  .header-datasource .ds-label { opacity: 0.7; }
+  .header-datasource .ds-name { font-weight: 600; }
+
+  /* Settings Gear Button */
+  .btn-settings {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #fff;
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+    transition: background 0.2s;
+  }
+  .btn-settings:hover {
+    background: rgba(255,255,255,0.25);
+  }
+
+  /* Settings Modal Overlay */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .settings-overlay.open { display: flex; }
+
+  .settings-modal {
+    background: #fff;
+    border-radius: 16px;
+    width: 420px;
+    max-width: 92vw;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    animation: modalIn 0.25s ease;
+  }
+  @keyframes modalIn {
+    from { transform: scale(0.95) translateY(10px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+  }
+  .settings-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-modal-header h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .settings-modal-close {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: #9ca3af;
+    padding: 4px;
+  }
+  .settings-modal-close:hover { color: var(--text-dark); }
+
+  .settings-section {
+    padding: 16px 22px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .settings-section:last-child { border-bottom: none; }
+  .settings-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-light);
+    margin-bottom: 12px;
+  }
+  .settings-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 0;
+    font-size: 13px;
+  }
+  .settings-row .sr-label { color: var(--text-light); }
+  .settings-row .sr-value { font-weight: 600; color: var(--text-dark); }
+  .settings-row .sr-value.text-success { color: var(--success); }
+  .settings-row .sr-value.text-danger { color: var(--danger); }
+  .settings-row .sr-value.text-warning { color: var(--warning); }
+
+  .provider-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .provider-badge.mock {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .provider-badge.live {
+    background: #d1fae5;
+    color: #065f46;
+  }
+
+  .rate-limit-bar {
+    width: 100%;
+    height: 6px;
+    background: #e5e7eb;
+    border-radius: 3px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .rate-limit-bar .rl-fill {
+    height: 100%;
+    background: var(--success);
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+
+  /* Data Quality Badge on Vessel Cards */
+  .vessel-card-datasource {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+  }
+  .ds-source-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+    background: #f1f5f9;
+    color: var(--text-light);
+  }
+  .ds-source-tag i { font-size: 9px; }
+  .ds-source-tag.src-ais { background: #dbeafe; color: #1e40af; }
+  .ds-source-tag.src-manual { background: #fef3c7; color: #92400e; }
+  .ds-source-tag.src-mock { background: #f3e8ff; color: #6b21a8; }
+
+  .ds-age-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+  }
+  .ds-age-tag .age-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .ds-age-tag .age-dot.fresh { background: var(--success); }
+  .ds-age-tag .age-dot.moderate { background: var(--warning); }
+  .ds-age-tag .age-dot.stale { background: var(--danger); }
+
+  /* ============ SIDEBAR TABS ============ */
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--border);
+    background: #fff;
+    flex-shrink: 0;
+  }
+  .sidebar-tab {
+    flex: 1;
+    padding: 10px 8px;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: var(--text-light);
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s;
+    font-family: inherit;
+  }
+  .sidebar-tab:hover { color: var(--primary); background: rgba(0,51,153,0.03); }
+  .sidebar-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--accent);
+    background: rgba(0,51,153,0.04);
+  }
+
+  /* ============ ADMIN PANEL ============ */
+  .admin-panel {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+  }
+  .admin-panel.active { display: flex; }
+  .admin-toolbar {
+    padding: 12px;
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .admin-toolbar .btn {
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.2s;
+    background: #fff;
+    color: var(--text-dark);
+    white-space: nowrap;
+  }
+  .admin-toolbar .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .admin-toolbar .btn-accent {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .admin-toolbar .btn-accent:hover { background: var(--accent-light); border-color: var(--accent-light); }
+  .admin-toolbar .btn-danger { color: var(--danger); }
+  .admin-toolbar .btn-danger:hover { border-color: var(--danger); background: #fff0f0; }
+  .admin-search {
+    flex: 1;
+    min-width: 120px;
+    padding: 7px 10px 7px 32px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--bg-sidebar) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%239ca3af' viewBox='0 0 512 512'%3E%3Cpath d='M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352a144 144 0 1 0 0-288 144 144 0 1 0 0 288z'/%3E%3C/svg%3E") 10px center no-repeat;
+    outline: none;
+  }
+  .admin-search:focus { border-color: var(--primary); background-color: #fff; }
+
+  .admin-table-wrap {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+  }
+  .admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 580px;
+  }
+  .admin-table th {
+    position: sticky;
+    top: 0;
+    background: var(--primary);
+    color: #fff;
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    z-index: 2;
+  }
+  .admin-table th:hover { background: var(--primary-light); }
+  .admin-table th .sort-arrow { margin-left: 4px; font-size: 9px; opacity: 0.6; }
+  .admin-table th .sort-arrow.active { opacity: 1; }
+  .admin-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    color: var(--text-dark);
+    white-space: nowrap;
+  }
+  .admin-table tr:nth-child(even) { background: #f8fafc; }
+  .admin-table tr:hover { background: #eef2ff; }
+  .admin-table .actions-cell { display: flex; gap: 4px; }
+  .admin-table .btn-sm {
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    background: #fff;
+    transition: all 0.15s;
+  }
+  .admin-table .btn-edit { color: var(--primary); }
+  .admin-table .btn-edit:hover { background: #eef2ff; border-color: var(--primary); }
+  .admin-table .btn-del { color: var(--danger); }
+  .admin-table .btn-del:hover { background: #fff0f0; border-color: var(--danger); }
+  .admin-table-footer {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text-light);
+    background: #fff;
+    border-top: 1px solid var(--border);
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  /* ============ FORM SLIDE PANEL ============ */
+  .form-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 10000;
+    display: none;
+  }
+  .form-overlay.open { display: block; }
+  .form-panel {
+    position: fixed;
+    top: 0;
+    right: -480px;
+    width: 440px;
+    max-width: 100vw;
+    height: 100vh;
+    background: #fff;
+    z-index: 10001;
+    box-shadow: -8px 0 30px rgba(0,0,0,0.15);
+    display: flex;
+    flex-direction: column;
+    transition: right 0.3s ease;
+  }
+  .form-panel.open { right: 0; }
+  .form-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 2px solid var(--accent);
+    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+    color: #fff;
+  }
+  .form-panel-header h3 { font-size: 16px; font-weight: 700; }
+  .form-panel-close {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: #fff;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .form-panel-close:hover { background: rgba(255,255,255,0.3); }
+  .form-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+  }
+  .form-group {
+    margin-bottom: 14px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-light);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .form-group label .req { color: var(--danger); }
+  .form-group input,
+  .form-group select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .form-group input:focus,
+  .form-group select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0,51,153,0.08);
+  }
+  .form-group input.error { border-color: var(--danger); }
+  .form-group .error-msg { font-size: 11px; color: var(--danger); margin-top: 3px; }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .form-panel-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
+  .form-panel-footer .btn {
+    padding: 9px 24px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text-dark);
+    transition: all 0.2s;
+  }
+  .form-panel-footer .btn:hover { background: #f5f7fb; }
+  .form-panel-footer .btn-save {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .form-panel-footer .btn-save:hover { background: var(--primary-light); }
+
+  /* ============ IMPORT PREVIEW MODAL ============ */
+  .import-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 10002;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .import-overlay.open { display: flex; }
+  .import-modal {
+    background: #fff;
+    border-radius: 16px;
+    width: 700px;
+    max-width: 95vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    animation: modalIn 0.25s ease;
+  }
+  .import-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .import-modal-header h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+  }
+  .import-modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 16px 20px;
+  }
+  .import-modal-body table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .import-modal-body th {
+    background: var(--primary);
+    color: #fff;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 11px;
+    position: sticky;
+    top: 0;
+  }
+  .import-modal-body td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .import-modal-body tr:nth-child(even) { background: #f8fafc; }
+  .import-mode-select {
+    margin-bottom: 12px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 13px;
+  }
+  .import-mode-select label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .import-modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+  .import-modal-footer .btn {
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: #fff;
+    transition: all 0.2s;
+  }
+  .import-modal-footer .btn-confirm {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .import-modal-footer .btn-confirm:hover { background: var(--primary-light); }
+
+  /* Map-view / admin-view content toggling */
+  .sidebar-map-content { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+  .sidebar-map-content.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay">
+  <div class="loader-logo">OR<span>.</span></div>
+  <div class="loader-subtitle">VESSEL LOCATION TRACKING</div>
+  <div class="loader-ring"></div>
+  <div class="loader-dots"><span></span><span></span><span></span></div>
+</div>
+
+<!-- Header -->
+<header>
+  <div class="header-left">
+    <div class="logo">OR<span>.</span></div>
+    <div class="logo-divider"></div>
+    <div class="header-title"><i class="fas fa-ship"></i>&nbsp; ระบบติดตามเรือ</div>
+  </div>
+  <div class="header-right">
+    <div class="header-datasource" id="headerDatasource">
+      <div class="ds-dot connected" id="dsDot"></div>
+      <span class="ds-label">AIS:</span>
+      <span class="ds-name" id="dsName">Mock Data</span>
+    </div>
+    <div class="refresh-indicator">
+      <div class="dot"></div>
+      <span>อัปเดตอัตโนมัติ</span>
+    </div>
+    <div class="header-time" id="headerTime"></div>
+    <button class="btn-settings" id="btnSettings" title="ตั้งค่าแหล่งข้อมูล"><i class="fas fa-cog"></i></button>
+  </div>
+</header>
+
+<!-- Stats Bar -->
+<div class="stats-bar">
+  <div class="stat-item total">
+    <i class="fas fa-ship" style="color:#fff;font-size:14px;"></i>
+    <span>เรือทั้งหมด</span>
+    <span class="stat-count" id="statTotal">0</span>
+  </div>
+  <div class="stat-divider"></div>
+  <div class="stat-item">
+    <div class="stat-dot" style="background:var(--sailing)"></div>
+    <span>กำลังแล่น</span>
+    <span class="stat-count" id="statSailing">0</span>
+  </div>
+  <div class="stat-item">
+    <div class="stat-dot" style="background:var(--docked)"></div>
+    <span>จอดเทียบท่า</span>
+    <span class="stat-count" id="statDocked">0</span>
+  </div>
+  <div class="stat-item">
+    <div class="stat-dot" style="background:var(--waiting)"></div>
+    <span>รอเข้าท่า</span>
+    <span class="stat-count" id="statWaiting">0</span>
+  </div>
+  <div class="stat-item">
+    <div class="stat-dot" style="background:var(--maintenance)"></div>
+    <span>ซ่อมบำรุง</span>
+    <span class="stat-count" id="statMaintenance">0</span>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div class="main-content">
+  <!-- Sidebar Toggle (mobile) -->
+  <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-bars"></i></button>
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <!-- Sidebar Tabs -->
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" id="tabMap" data-tab="map">&#x1F5FA; แผนที่</button>
+      <button class="sidebar-tab" id="tabAdmin" data-tab="admin">&#x2699; จัดการเรือ</button>
+    </div>
+
+    <!-- Map View Content -->
+    <div class="sidebar-map-content" id="sidebarMapContent">
+      <div class="sidebar-header">
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="searchInput" placeholder="ค้นหาเรือ...">
+        </div>
+        <div class="filter-section">
+          <div class="filter-title">สถานะเรือ</div>
+          <div class="filter-group" id="statusFilters">
+            <label class="filter-chip active" data-status="sailing">
+              <input type="checkbox" checked>
+              <div class="chip-dot" style="background:var(--sailing)"></div>
+              กำลังแล่น
+            </label>
+            <label class="filter-chip active" data-status="docked">
+              <input type="checkbox" checked>
+              <div class="chip-dot" style="background:var(--docked)"></div>
+              จอดเทียบท่า
+            </label>
+            <label class="filter-chip active" data-status="waiting">
+              <input type="checkbox" checked>
+              <div class="chip-dot" style="background:var(--waiting)"></div>
+              รอเข้าท่า
+            </label>
+            <label class="filter-chip active" data-status="maintenance">
+              <input type="checkbox" checked>
+              <div class="chip-dot" style="background:var(--maintenance)"></div>
+              ซ่อมบำรุง
+            </label>
+          </div>
+        </div>
+        <div class="type-filter">
+          <div class="filter-title" style="margin-top:10px;">ประเภทเรือ</div>
+          <select id="typeFilter">
+            <option value="all">ทุกประเภท</option>
+            <option value="oil_tanker">เรือบรรทุกน้ำมัน</option>
+            <option value="chemical_tanker">เรือบรรทุกเคมีภัณฑ์</option>
+            <option value="lpg_carrier">เรือบรรทุก LPG</option>
+            <option value="product_tanker">เรือบรรทุกผลิตภัณฑ์ปิโตรเลียม</option>
+            <option value="barge">เรือบาร์จ</option>
+          </select>
+        </div>
+        <div class="company-filter">
+          <div class="filter-title" style="margin-top:10px;">กรองตามบริษัท</div>
+          <select id="companyFilter">
+            <option value="all">ทุกบริษัท</option>
+          </select>
+        </div>
+      </div>
+      <div class="vessel-list" id="vesselList"></div>
+    </div>
+
+    <!-- Admin Panel Content -->
+    <div class="admin-panel" id="adminPanel">
+      <div class="admin-toolbar">
+        <button class="btn btn-accent" id="btnAddVessel"><i class="fas fa-plus"></i> เพิ่มเรือใหม่</button>
+        <button class="btn" id="btnImportExcel"><i class="fas fa-file-excel"></i> นำเข้า Excel</button>
+        <button class="btn" id="btnExportExcel"><i class="fas fa-file-excel"></i> ส่งออก Excel</button>
+        <button class="btn" id="btnExportJson"><i class="fas fa-file-code"></i> ส่งออก JSON</button>
+        <button class="btn btn-danger" id="btnResetConfig"><i class="fas fa-undo"></i> รีเซ็ตเป็นค่าเริ่มต้น</button>
+        <input type="text" class="admin-search" id="adminSearch" placeholder="ค้นหาเรือในตาราง...">
+      </div>
+      <div class="admin-table-wrap" id="adminTableWrap"></div>
+      <div class="admin-table-footer" id="adminTableFooter">รวม: 0 ลำ</div>
+    </div>
+    <!-- Hidden file inputs -->
+    <input type="file" id="importExcelInput" accept=".xlsx,.xls,.csv" style="display:none">
+    <input type="file" id="importJsonInput" accept=".json" style="display:none">
+  </div>
+
+  <!-- Map -->
+  <div class="map-container">
+    <div id="map"></div>
+    <!-- Route Info Box -->
+    <div class="route-info-box" id="routeInfoBox">
+      <button class="ri-close" id="riClose"><i class="fas fa-times"></i></button>
+      <div class="ri-title" id="riTitle"></div>
+      <div class="ri-row"><span class="ri-label">ต้นทาง:</span><span class="ri-value" id="riOrigin"></span></div>
+      <div class="ri-row"><span class="ri-label">ปลายทาง:</span><span class="ri-value" id="riDest"></span></div>
+      <div class="ri-row"><span class="ri-label">ระยะทาง:</span><span class="ri-value" id="riDist"></span></div>
+      <div class="ri-row"><span class="ri-label">ETA:</span><span class="ri-value" id="riEta"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Vessel Form Slide Panel -->
+<div class="form-overlay" id="formOverlay"></div>
+<div class="form-panel" id="formPanel">
+  <div class="form-panel-header">
+    <h3 id="formTitle">เพิ่มเรือใหม่</h3>
+    <button class="form-panel-close" id="formClose"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="form-panel-body" id="formBody"></div>
+  <div class="form-panel-footer">
+    <button class="btn" id="formCancel">ยกเลิก</button>
+    <button class="btn btn-save" id="formSave"><i class="fas fa-save"></i> บันทึก</button>
+  </div>
+</div>
+
+<!-- Import Preview Modal -->
+<div class="import-overlay" id="importOverlay">
+  <div class="import-modal">
+    <div class="import-modal-header">
+      <h3><i class="fas fa-file-import"></i> ตัวอย่างข้อมูลนำเข้า</h3>
+      <button class="settings-modal-close" id="importClose"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="import-mode-select" style="padding:12px 20px 0;">
+      <span style="font-weight:600;">โหมด:</span>
+      <label><input type="radio" name="importMode" value="merge" checked> รวม (เพิ่มใหม่ + อัปเดตชื่อซ้ำ)</label>
+      <label><input type="radio" name="importMode" value="replace"> แทนที่ทั้งหมด</label>
+    </div>
+    <div class="import-modal-body" id="importPreviewBody"></div>
+    <div class="import-modal-footer">
+      <button class="btn" id="importCancelBtn">ยกเลิก</button>
+      <button class="btn btn-confirm" id="importConfirmBtn"><i class="fas fa-check"></i> ยืนยันนำเข้า</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-modal">
+    <div class="settings-modal-header">
+      <h3><i class="fas fa-cog"></i> ตั้งค่าแหล่งข้อมูล</h3>
+      <button class="settings-modal-close" id="settingsClose"><i class="fas fa-times"></i></button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">ผู้ให้บริการข้อมูล AIS</div>
+      <div class="settings-row">
+        <span class="sr-label">ผู้ให้บริการปัจจุบัน</span>
+        <span class="provider-badge mock" id="settingsProviderBadge">
+          <i class="fas fa-flask"></i>
+          <span id="settingsProviderName">Mock Data</span>
+        </span>
+      </div>
+      <div class="settings-row">
+        <span class="sr-label">สถานะการเชื่อมต่อ</span>
+        <span class="sr-value text-success" id="settingsConnStatus"><i class="fas fa-circle" style="font-size:8px;"></i> เชื่อมต่อแล้ว</span>
+      </div>
+      <div class="settings-row">
+        <span class="sr-label">โหมดข้อมูล</span>
+        <span class="sr-value" id="settingsDataMode">ข้อมูลจำลอง (Prototype)</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">ความทันสมัยของข้อมูล</div>
+      <div class="settings-row">
+        <span class="sr-label">ซิงค์ล่าสุด</span>
+        <span class="sr-value" id="settingsLastSync">-</span>
+      </div>
+      <div class="settings-row">
+        <span class="sr-label">ตำแหน่งล่าสุด</span>
+        <span class="sr-value" id="settingsLastPos">-</span>
+      </div>
+      <div class="settings-row">
+        <span class="sr-label">อายุข้อมูล</span>
+        <span class="sr-value text-success" id="settingsDataAge"><i class="fas fa-check-circle"></i> ข้อมูลเป็นปัจจุบัน</span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">ข้อมูลผู้ให้บริการ</div>
+      <div class="settings-row">
+        <span class="sr-label">แผน API</span>
+        <span class="sr-value" id="settingsApiPlan">ไม่มี (Mock)</span>
+      </div>
+      <div class="settings-row">
+        <span class="sr-label">คำขอคงเหลือวันนี้</span>
+        <span class="sr-value" id="settingsRateLimit">ไม่จำกัด</span>
+      </div>
+      <div style="padding: 2px 0;">
+        <div class="rate-limit-bar">
+          <div class="rl-fill" id="settingsRateBar" style="width:100%"></div>
+        </div>
+      </div>
+      <div class="settings-row">
+        <span class="sr-label">คุณภาพสัญญาณ</span>
+        <span class="sr-value text-success" id="settingsSignal">ดีเยี่ยม</span>
+      </div>
+    </div>
+
+    <div class="settings-section" style="background:#f8fafc;">
+      <div style="font-size:12px; color:var(--text-light); text-align:center;">
+        <i class="fas fa-info-circle"></i>
+        ระบบพร้อมรองรับผู้ให้บริการ AIS เช่น MarineTraffic, VesselFinder, Spire<br>
+        ติดต่อทีม IT เพื่อเปลี่ยนแหล่งข้อมูล
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script>
+(function() {
+  // ============ PORT COORDINATES ============
+  var PORTS = {
+    'ศรีราชา':          { lat: 13.1674, lng: 100.9267 },
+    'มาบตาพุด':         { lat: 12.6500, lng: 101.1500 },
+    'แหลมฉบัง':         { lat: 13.0833, lng: 100.8833 },
+    'เกาะสีชัง':         { lat: 13.1580, lng: 100.8110 },
+    'ท่าเรือกรุงเทพ':     { lat: 13.7070, lng: 100.5770 },
+    'สัตหีบ':            { lat: 12.6700, lng: 100.9000 },
+    'สงขลา':            { lat: 7.1896,  lng: 100.5954 },
+    'สุราษฎร์ธานี':       { lat: 9.1400,  lng: 99.3300  },
+    'นครศรีธรรมราช':     { lat: 8.4400,  lng: 100.0500 },
+    'ชุมพร':             { lat: 10.4930, lng: 99.1800  },
+    'ระนอง':            { lat: 9.9528,  lng: 98.6085  },
+    'ภูเก็ต':             { lat: 7.8200,  lng: 98.3700  }
+  };
+
+  // ============ COMPANY COLORS ============
+  var COMPANY_COLORS = {
+    'บริษัทนทลินจำกัด': '#e74c3c',
+    'บริษัทเอ็น.ที.แอล.จำกัด': '#2ecc71',
+    'บริษัทบี.พี.พี.ซัพพลายจำกัด': '#3498db',
+    'บริษัทสมูธซีจำกัด': '#9b59b6',
+    'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด': '#1abc9c',
+    'บริษัทพีพีโกลบัลลายน์จำกัด': '#f1c40f',
+    'บริษัทพีลาทัสมารีนจำกัด': '#e84393'
+  };
+
+  // ============ DATA SOURCE CONFIG ============
+  var dataSourceConfig = {
+    provider: 'Mock Data',
+    providerType: 'mock',
+    status: 'connected',
+    dataMode: 'ข้อมูลจำลอง (Prototype)',
+    apiPlan: 'ไม่มี (Mock)',
+    rateLimitTotal: 1000,
+    rateLimitUsed: 0,
+    signalQuality: 'ดีเยี่ยม',
+    lastSync: new Date(),
+    lastPositionUpdate: new Date()
+  };
+
+  // ============ VESSEL DATA (38 vessels) ============
+  var vessels = [
+    {
+      id: 'V001', name: 'B.P.P. 202',
+      operator: 'บริษัทบี.พี.พี.ซัพพลายจำกัด',
+      shipOwner: 'บริษัท บี.พี.พี.ซัพพลายจำกัด', shipManagement: 'บริษัท เกรซ โอเชี่ยน มารีน จำกัด',
+      iacsClass: 'TG', yearBuilt: 2006,
+      product: 'น้ำมันเตา', contractType: 'สัญญา', hullType: 'DH', vesselSize: 1932,
+      imo: 'IMO 9100001', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันเตา',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 12.80, lng: 100.95, speed: 8.5, heading: 195,
+      cargo: 'ดีเซล 2,800 ตัน', origin: 'ศรีราชา', destination: 'สุราษฎร์ธานี',
+      eta: '20 มี.ค. 2026 14:00', dwt: '3,200 DWT',
+      trail: [{lat:13.16,lng:100.92},{lat:13.00,lng:100.95},{lat:12.80,lng:100.95}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 5*60000)
+    },
+    {
+      id: 'V002', name: 'GRACEKORAKOT',
+      operator: 'บริษัทบี.พี.พี.ซัพพลายจำกัด',
+      shipOwner: 'บริษัท บี.พี.พี.ซัพพลายจำกัด', shipManagement: 'บริษัท เกรซ โอเชี่ยน มารีน จำกัด',
+      iacsClass: 'TG', yearBuilt: 2006,
+      product: 'น้ำมันเตา', contractType: 'สัญญา', hullType: 'DH', vesselSize: 2789,
+      imo: 'IMO 9100002', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันเตา',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 10.50, lng: 100.20, speed: 9.2, heading: 180,
+      cargo: 'เบนซิน 1,500 ตัน', origin: 'มาบตาพุด', destination: 'สงขลา',
+      eta: '21 มี.ค. 2026 06:00', dwt: '2,800 DWT',
+      trail: [{lat:12.65,lng:101.15},{lat:11.50,lng:100.70},{lat:10.50,lng:100.20}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 3*60000)
+    },
+    {
+      id: 'V003', name: 'MT.CHALAKARN',
+      operator: 'บริษัทบี.พี.พี.ซัพพลายจำกัด',
+      shipOwner: 'บริษัท บี.พี.พี.ซัพพลายจำกัด', shipManagement: 'บริษัท เกรซ โอเชี่ยน มารีน จำกัด',
+      iacsClass: 'TG', yearBuilt: 2002,
+      product: 'VLSFO', contractType: 'สัญญา', hullType: 'DH', vesselSize: 7138,
+      imo: 'IMO 9100003', type: 'oil_tanker', typeTh: 'เรือบรรทุก VLSFO',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 9.80, lng: 100.10, speed: 10.1, heading: 210,
+      cargo: 'น้ำมันดิบ 4,200 ตัน', origin: 'แหลมฉบัง', destination: 'สงขลา',
+      eta: '21 มี.ค. 2026 18:00', dwt: '4,800 DWT',
+      trail: [{lat:13.08,lng:100.88},{lat:11.50,lng:100.50},{lat:9.80,lng:100.10}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 8*60000)
+    },
+    {
+      id: 'V004', name: 'SMOOTHSEA 30',
+      operator: 'บริษัทสมูธซีจำกัด',
+      shipOwner: 'บริษัท สมูธซี จำกัด', shipManagement: 'บริษัท ซีบัส ชิพแมนเนจเม้นท์ จำกัด',
+      iacsClass: 'TG', yearBuilt: 2018,
+      product: 'VLSFO', contractType: 'สัญญา', hullType: 'DH', vesselSize: 7435,
+      imo: 'IMO 9100004', type: 'oil_tanker', typeTh: 'เรือบรรทุก VLSFO',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 13.1674, lng: 100.9267, speed: 0, heading: 45,
+      cargo: 'เบนซิน 2,000 ตัน', origin: 'มาบตาพุด', destination: 'ศรีราชา',
+      eta: 'ถึงแล้ว', dwt: '2,500 DWT',
+      trail: [{lat:12.65,lng:101.15},{lat:13.00,lng:101.00},{lat:13.1674,lng:100.9267}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 2*60000)
+    },
+    {
+      id: 'V005', name: 'SMOOTHSEA 21',
+      operator: 'บริษัทสมูธซีจำกัด',
+      shipOwner: 'บริษัท สมูธซี จำกัด', shipManagement: 'บริษัท ซีบัส ชิพแมนเนจเม้นท์ จำกัด',
+      iacsClass: 'TG', yearBuilt: 2011,
+      product: 'Asphalt', contractType: 'สัญญา', hullType: 'DH,DB', vesselSize: 1216,
+      imo: 'IMO 9100005', type: 'oil_tanker', typeTh: 'เรือบรรทุกยางมะตอย',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 11.20, lng: 100.60, speed: 7.8, heading: 170,
+      cargo: 'ดีเซล 1,800 ตัน', origin: 'เกาะสีชัง', destination: 'ชุมพร',
+      eta: '20 มี.ค. 2026 22:00', dwt: '2,200 DWT',
+      trail: [{lat:13.15,lng:100.81},{lat:12.20,lng:100.70},{lat:11.20,lng:100.60}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 6*60000)
+    },
+    {
+      id: 'V006', name: 'TRANS NOPPAKAO',
+      operator: 'บริษัทนทลินจำกัด',
+      shipOwner: 'บริษัท นทลิน จำกัด', shipManagement: 'บริษัท ทรานส์ โอเชี่ยน ซัพพลาย (1992) จำกัด',
+      iacsClass: 'NK', yearBuilt: 2007,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: '', vesselSize: 2345,
+      imo: 'IMO 9100006', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 8.50, lng: 100.30, speed: 9.5, heading: 350,
+      cargo: 'น้ำมันเตา 3,000 ตัน', origin: 'สงขลา', destination: 'มาบตาพุด',
+      eta: '22 มี.ค. 2026 10:00', dwt: '3,500 DWT',
+      trail: [{lat:7.18,lng:100.59},{lat:7.80,lng:100.45},{lat:8.50,lng:100.30}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 4*60000)
+    },
+    {
+      id: 'V007', name: 'B.P.P. 4',
+      operator: 'บริษัทบี.พี.พี.ซัพพลายจำกัด',
+      shipOwner: 'บริษัท บี.พี.พี.ซัพพลายจำกัด', shipManagement: 'บริษัท ทรานส์ โอเชี่ยน ซัพพลาย (1992) จำกัด',
+      iacsClass: 'TG', yearBuilt: 1983,
+      product: 'Bunker', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 1025,
+      imo: 'IMO 9100007', type: 'barge', typeTh: 'เรือ Bunker',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 12.6500, lng: 101.1500, speed: 0, heading: 90,
+      cargo: 'เบนซิน 1,200 ตัน', origin: 'ศรีราชา', destination: 'มาบตาพุด',
+      eta: 'ถึงแล้ว', dwt: '1,800 DWT',
+      trail: [{lat:13.16,lng:100.92},{lat:12.90,lng:101.05},{lat:12.65,lng:101.15}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 15*60000)
+    },
+    {
+      id: 'V008', name: 'SRILAMPHU',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท ที.ไอ.เอ็ม. ชิพ แมนเนจเมนท์ จำกัด',
+      iacsClass: 'ABS', yearBuilt: 2020,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 2680,
+      imo: 'IMO 9100008', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 13.40, lng: 100.65, speed: 6.5, heading: 185,
+      cargo: 'ดีเซล 900 ตัน', origin: 'ท่าเรือกรุงเทพ', destination: 'ศรีราชา',
+      eta: '19 มี.ค. 2026 20:00', dwt: '1,200 DWT',
+      trail: [{lat:13.70,lng:100.57},{lat:13.55,lng:100.62},{lat:13.40,lng:100.65}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 2*60000)
+    },
+    {
+      id: 'V009', name: 'SRIPHUMRIANG',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท ที.ไอ.เอ็ม. ชิพ แมนเนจเมนท์ จำกัด',
+      iacsClass: 'ABS', yearBuilt: 2019,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 2998,
+      imo: 'IMO 9100009', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'waiting', statusTh: 'รอเข้าท่า',
+      lat: 12.72, lng: 101.05, speed: 0.5, heading: 270,
+      cargo: 'น้ำมันดิบ 3,500 ตัน', origin: 'ท่าเรือกรุงเทพ', destination: 'มาบตาพุด',
+      eta: '19 มี.ค. 2026 18:00', dwt: '4,000 DWT',
+      trail: [{lat:13.70,lng:100.57},{lat:13.20,lng:100.80},{lat:12.72,lng:101.05}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 20*60000)
+    },
+    {
+      id: 'V010', name: 'SRIPHUNPIN',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'ABS', yearBuilt: 2019,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 3530,
+      imo: 'IMO 9100010', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 10.80, lng: 99.50, speed: 8.0, heading: 160,
+      cargo: 'เบนซิน 1,600 ตัน', origin: 'ชุมพร', destination: 'สุราษฎร์ธานี',
+      eta: '20 มี.ค. 2026 08:00', dwt: '2,000 DWT',
+      trail: [{lat:10.49,lng:99.18},{lat:10.65,lng:99.35},{lat:10.80,lng:99.50}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 7*60000)
+    },
+    {
+      id: 'V011', name: 'SRI TAPEE',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'BV', yearBuilt: 2016,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 3007,
+      imo: 'IMO 9100011', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 9.50, lng: 99.80, speed: 7.5, heading: 220,
+      cargo: 'ดีเซล 2,200 ตัน', origin: 'สุราษฎร์ธานี', destination: 'ภูเก็ต',
+      eta: '21 มี.ค. 2026 12:00', dwt: '2,800 DWT',
+      trail: [{lat:9.14,lng:99.33},{lat:9.30,lng:99.55},{lat:9.50,lng:99.80}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 10*60000)
+    },
+    {
+      id: 'V012', name: 'SRI NATHAWEE',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 6173,
+      imo: 'IMO 9100012', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 7.1896, lng: 100.5954, speed: 0, heading: 315,
+      cargo: 'น้ำมันเตา 2,500 ตัน', origin: 'มาบตาพุด', destination: 'สงขลา',
+      eta: 'ถึงแล้ว', dwt: '3,000 DWT',
+      trail: [{lat:12.65,lng:101.15},{lat:10.00,lng:100.80},{lat:7.18,lng:100.59}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 30*60000)
+    },
+    {
+      id: 'V013', name: 'MT.SRIKHIRICHAD',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'BV', yearBuilt: 2017,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 5817,
+      imo: 'IMO 9100013', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 11.80, lng: 100.70, speed: 9.8, heading: 15,
+      cargo: 'เบนซิน 3,800 ตัน', origin: 'สงขลา', destination: 'แหลมฉบัง',
+      eta: '20 มี.ค. 2026 20:00', dwt: '4,500 DWT',
+      trail: [{lat:7.18,lng:100.59},{lat:9.50,lng:100.65},{lat:11.80,lng:100.70}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 9*60000)
+    },
+    {
+      id: 'V014', name: 'MT.SRIPHUKET',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'NK', yearBuilt: 1992,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 5527,
+      imo: 'IMO 9100014', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 8.20, lng: 98.80, speed: 7.0, heading: 190,
+      cargo: 'ดีเซล 1,400 ตัน', origin: 'ระนอง', destination: 'ภูเก็ต',
+      eta: '20 มี.ค. 2026 04:00', dwt: '1,800 DWT',
+      trail: [{lat:9.95,lng:98.60},{lat:9.10,lng:98.70},{lat:8.20,lng:98.80}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 12*60000)
+    },
+    {
+      id: 'V015', name: 'MT.SRICHAIYA',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'ABS', yearBuilt: 2019,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 3530,
+      imo: 'IMO 9100015', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'waiting', statusTh: 'รอเข้าท่า',
+      lat: 13.10, lng: 100.85, speed: 0.3, heading: 100,
+      cargo: 'น้ำมันดิบ 4,000 ตัน', origin: 'สัตหีบ', destination: 'แหลมฉบัง',
+      eta: '19 มี.ค. 2026 19:00', dwt: '4,500 DWT',
+      trail: [{lat:12.67,lng:100.90},{lat:12.90,lng:100.87},{lat:13.10,lng:100.85}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 25*60000)
+    },
+    {
+      id: 'V016', name: 'MT.SRITAHPHET',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'ABS', yearBuilt: 2019,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 3514,
+      imo: 'IMO 9100016', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 12.20, lng: 100.75, speed: 8.2, heading: 340,
+      cargo: 'เบนซิน 2,600 ตัน', origin: 'สุราษฎร์ธานี', destination: 'ศรีราชา',
+      eta: '20 มี.ค. 2026 16:00', dwt: '3,200 DWT',
+      trail: [{lat:9.14,lng:99.33},{lat:10.70,lng:100.05},{lat:12.20,lng:100.75}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 5*60000)
+    },
+    {
+      id: 'V017', name: 'MT.SRINARA',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'NK', yearBuilt: 1993,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 5243,
+      imo: 'IMO 9100017', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 9.1400, lng: 99.3300, speed: 0, heading: 60,
+      cargo: 'ดีเซล 2,000 ตัน', origin: 'แหลมฉบัง', destination: 'สุราษฎร์ธานี',
+      eta: 'ถึงแล้ว', dwt: '2,500 DWT',
+      trail: [{lat:13.08,lng:100.88},{lat:11.00,lng:100.10},{lat:9.14,lng:99.33}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 40*60000)
+    },
+    {
+      id: 'V018', name: 'SIRITHANA',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'TG', yearBuilt: 1985,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 5419,
+      imo: 'IMO 9100018', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 7.50, lng: 100.40, speed: 8.8, heading: 5,
+      cargo: 'น้ำมันเตา 1,800 ตัน', origin: 'สงขลา', destination: 'นครศรีธรรมราช',
+      eta: '20 มี.ค. 2026 10:00', dwt: '2,200 DWT',
+      trail: [{lat:7.18,lng:100.59},{lat:7.30,lng:100.50},{lat:7.50,lng:100.40}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 3*60000)
+    },
+    {
+      id: 'V019', name: 'M.T.SRISURAT',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'BV', yearBuilt: 2019,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 3530,
+      imo: 'IMO 9100019', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 10.10, lng: 99.60, speed: 7.3, heading: 25,
+      cargo: 'ดีเซล 3,200 ตัน', origin: 'สุราษฎร์ธานี', destination: 'เกาะสีชัง',
+      eta: '21 มี.ค. 2026 08:00', dwt: '3,800 DWT',
+      trail: [{lat:9.14,lng:99.33},{lat:9.60,lng:99.45},{lat:10.10,lng:99.60}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 6*60000)
+    },
+    {
+      id: 'V020', name: 'MT.SRIKANCHANADIT',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'BV', yearBuilt: 2018,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 3422,
+      imo: 'IMO 9100020', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 13.0833, lng: 100.8833, speed: 0, heading: 120,
+      cargo: 'เบนซิน 3,500 ตัน', origin: 'มาบตาพุด', destination: 'แหลมฉบัง',
+      eta: 'ถึงแล้ว', dwt: '4,200 DWT',
+      trail: [{lat:12.65,lng:101.15},{lat:12.85,lng:100.98},{lat:13.08,lng:100.88}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 18*60000)
+    },
+    {
+      id: 'V021', name: 'MT.SRIDONSAK',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท เอ็น.ที.แอล. มารีน จำกัด', shipManagement: 'บริษัท นทลิน แมนเนจเมนท์ จํากัด',
+      iacsClass: 'BV', yearBuilt: 2014,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 3366,
+      imo: 'IMO 9100021', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 9.00, lng: 100.00, speed: 8.6, heading: 175,
+      cargo: 'น้ำมันดิบ 2,800 ตัน', origin: 'ชุมพร', destination: 'สงขลา',
+      eta: '21 มี.ค. 2026 14:00', dwt: '3,400 DWT',
+      trail: [{lat:10.49,lng:99.18},{lat:9.70,lng:99.60},{lat:9.00,lng:100.00}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 11*60000)
+    },
+    {
+      id: 'V022', name: 'BIG SEA 17',
+      operator: 'บริษัทนทลินจำกัด',
+      shipOwner: 'บริษัท นทลิน จำกัด', shipManagement: 'บริษัท บิ๊กซี จำกัด',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 2323,
+      imo: 'IMO 9100022', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'waiting', statusTh: 'รอเข้าท่า',
+      lat: 13.15, lng: 100.83, speed: 0.4, heading: 80,
+      cargo: 'ดีเซล 1,500 ตัน', origin: 'สัตหีบ', destination: 'เกาะสีชัง',
+      eta: '19 มี.ค. 2026 17:30', dwt: '2,000 DWT',
+      trail: [{lat:12.67,lng:100.90},{lat:12.90,lng:100.86},{lat:13.15,lng:100.83}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 15*60000)
+    },
+    {
+      id: 'V023', name: 'MT.BIGSEA 20',
+      operator: 'บริษัทนทลินจำกัด',
+      shipOwner: 'บริษัท นทลิน จำกัด', shipManagement: 'บริษัท บิ๊กซี จำกัด',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 1806,
+      imo: 'IMO 9100023', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 13.50, lng: 100.60, speed: 6.0, heading: 200,
+      cargo: 'น้ำมันเตา 2,400 ตัน', origin: 'ท่าเรือกรุงเทพ', destination: 'สัตหีบ',
+      eta: '19 มี.ค. 2026 23:00', dwt: '3,000 DWT',
+      trail: [{lat:13.70,lng:100.57},{lat:13.60,lng:100.58},{lat:13.50,lng:100.60}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 4*60000)
+    },
+    {
+      id: 'V024', name: 'BSTHEPHA',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท บิ๊กซี จำกัด', shipManagement: 'บริษัท บิ๊กซี จำกัด',
+      iacsClass: 'NK', yearBuilt: 2002,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'DH', vesselSize: 2911,
+      imo: 'IMO 9100024', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 12.6700, lng: 100.9000, speed: 0, heading: 150,
+      cargo: 'ดีเซล 1,100 ตัน', origin: 'ศรีราชา', destination: 'สัตหีบ',
+      eta: 'ถึงแล้ว', dwt: '1,500 DWT',
+      trail: [{lat:13.16,lng:100.92},{lat:12.90,lng:100.91},{lat:12.67,lng:100.90}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 50*60000)
+    },
+    {
+      id: 'V025', name: 'MT.PP 3',
+      operator: 'บริษัทพีพีโกลบัลลายน์จำกัด',
+      shipOwner: 'บริษัท พีพีโกลบัลลายน์ จำกัด', shipManagement: 'บริษัท พีพีโกลบัลลายน์ จำกัด',
+      iacsClass: 'TG', yearBuilt: 1983,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 450,
+      imo: 'IMO 9100025', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 11.50, lng: 100.50, speed: 9.0, heading: 355,
+      cargo: 'เบนซิน 2,000 ตัน', origin: 'นครศรีธรรมราช', destination: 'มาบตาพุด',
+      eta: '20 มี.ค. 2026 18:00', dwt: '2,600 DWT',
+      trail: [{lat:8.44,lng:100.05},{lat:10.00,lng:100.25},{lat:11.50,lng:100.50}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 7*60000)
+    },
+    {
+      id: 'V026', name: 'MT.PP 7',
+      operator: 'บริษัทพีพีโกลบัลลายน์จำกัด',
+      shipOwner: 'บริษัท พีพีโกลบัลลายน์ จำกัด', shipManagement: 'บริษัท พีพีโกลบัลลายน์ จำกัด',
+      iacsClass: 'TG', yearBuilt: 1995,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'DH', vesselSize: 660,
+      imo: 'IMO 9100026', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'maintenance', statusTh: 'ซ่อมบำรุง',
+      lat: 13.1580, lng: 100.8110, speed: 0, heading: 0,
+      cargo: 'ว่าง', origin: 'เกาะสีชัง', destination: 'เกาะสีชัง',
+      eta: '-', dwt: '2,200 DWT',
+      trail: [],
+      dataSource: 'manual', lastUpdate: new Date(Date.now() - 180*60000)
+    },
+    {
+      id: 'V027', name: 'MT.PILATUS 50',
+      operator: 'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 610,
+      imo: 'IMO 9100027', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 12.30, lng: 100.80, speed: 8.0, heading: 10,
+      cargo: 'ดีเซล 3,000 ตัน', origin: 'สัตหีบ', destination: 'ท่าเรือกรุงเทพ',
+      eta: '20 มี.ค. 2026 02:00', dwt: '3,500 DWT',
+      trail: [{lat:12.67,lng:100.90},{lat:12.50,lng:100.85},{lat:12.30,lng:100.80}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 8*60000)
+    },
+    {
+      id: 'V028', name: 'MT.PILATUS 59',
+      operator: 'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1998,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 620,
+      imo: 'IMO 9100028', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 8.80, lng: 100.20, speed: 9.5, heading: 345,
+      cargo: 'น้ำมันดิบ 3,600 ตัน', origin: 'สงขลา', destination: 'ชุมพร',
+      eta: '21 มี.ค. 2026 04:00', dwt: '4,200 DWT',
+      trail: [{lat:7.18,lng:100.59},{lat:8.00,lng:100.40},{lat:8.80,lng:100.20}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 9*60000)
+    },
+    {
+      id: 'V029', name: 'MT.PILATUS 28',
+      operator: 'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1987,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 1190,
+      imo: 'IMO 9100029', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 10.4930, lng: 99.1800, speed: 0, heading: 240,
+      cargo: 'น้ำมันเตา 1,800 ตัน', origin: 'ศรีราชา', destination: 'ชุมพร',
+      eta: 'ถึงแล้ว', dwt: '2,400 DWT',
+      trail: [{lat:13.16,lng:100.92},{lat:11.80,lng:100.05},{lat:10.49,lng:99.18}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 35*60000)
+    },
+    {
+      id: 'V030', name: 'MT.PILATUS 42',
+      operator: 'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1990,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 610,
+      imo: 'IMO 9100030', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'waiting', statusTh: 'รอเข้าท่า',
+      lat: 12.60, lng: 101.10, speed: 0.6, heading: 290,
+      cargo: 'เบนซิน 2,800 ตัน', origin: 'ท่าเรือกรุงเทพ', destination: 'มาบตาพุด',
+      eta: '19 มี.ค. 2026 21:00', dwt: '3,400 DWT',
+      trail: [{lat:13.70,lng:100.57},{lat:13.10,lng:100.80},{lat:12.60,lng:101.10}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 22*60000)
+    },
+    {
+      id: 'V031', name: 'MT.PILATUS 44',
+      operator: 'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1993,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 610,
+      imo: 'IMO 9100031', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 10.00, lng: 100.50, speed: 7.2, heading: 165,
+      cargo: 'ดีเซล 2,500 ตัน', origin: 'เกาะสีชัง', destination: 'นครศรีธรรมราช',
+      eta: '21 มี.ค. 2026 16:00', dwt: '3,000 DWT',
+      trail: [{lat:13.15,lng:100.81},{lat:11.50,lng:100.65},{lat:10.00,lng:100.50}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 13*60000)
+    },
+    {
+      id: 'V032', name: 'MT.PILATUS 45',
+      operator: 'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1992,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 600,
+      imo: 'IMO 9100032', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 12.00, lng: 100.85, speed: 8.4, heading: 190,
+      cargo: 'LPG 1,500 ตัน', origin: 'มาบตาพุด', destination: 'สุราษฎร์ธานี',
+      eta: '21 มี.ค. 2026 02:00', dwt: '2,000 DWT',
+      trail: [{lat:12.65,lng:101.15},{lat:12.30,lng:101.00},{lat:12.00,lng:100.85}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 5*60000)
+    },
+    {
+      id: 'V033', name: 'MT.PILATUS 46',
+      operator: 'บริษัทเวิลด์ไวด์ทรานสปอร์ตจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 610,
+      imo: 'IMO 9100033', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'maintenance', statusTh: 'ซ่อมบำรุง',
+      lat: 12.6800, lng: 100.9100, speed: 0, heading: 180,
+      cargo: 'ว่าง', origin: 'สัตหีบ', destination: 'สัตหีบ',
+      eta: '-', dwt: '3,800 DWT',
+      trail: [],
+      dataSource: 'manual', lastUpdate: new Date(Date.now() - 240*60000)
+    },
+    {
+      id: 'V034', name: 'MT.PILATUS 33',
+      operator: 'บริษัทพีลาทัสมารีนจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1995,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 630,
+      imo: 'IMO 9100034', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 13.00, lng: 100.90, speed: 7.6, heading: 330,
+      cargo: 'เบนซิน 2,200 ตัน', origin: 'สัตหีบ', destination: 'ท่าเรือกรุงเทพ',
+      eta: '20 มี.ค. 2026 06:00', dwt: '2,800 DWT',
+      trail: [{lat:12.67,lng:100.90},{lat:12.85,lng:100.90},{lat:13.00,lng:100.90}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 6*60000)
+    },
+    {
+      id: 'V035', name: 'MT.PILATUS 35',
+      operator: 'บริษัทพีลาทัสมารีนจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1990,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 730,
+      imo: 'IMO 9100035', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'docked', statusTh: 'จอดเทียบท่า',
+      lat: 13.7070, lng: 100.5770, speed: 0, heading: 45,
+      cargo: 'น้ำมันเตา 800 ตัน', origin: 'ศรีราชา', destination: 'ท่าเรือกรุงเทพ',
+      eta: 'ถึงแล้ว', dwt: '1,200 DWT',
+      trail: [{lat:13.16,lng:100.92},{lat:13.40,lng:100.75},{lat:13.70,lng:100.57}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 60*60000)
+    },
+    {
+      id: 'V036', name: 'MT.PILATUS 55',
+      operator: 'บริษัทพีลาทัสมารีนจำกัด',
+      shipOwner: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)', shipManagement: 'บริษัท พีลาทัส มารีน จำกัด (มหาชน)',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'LPG', contractType: 'สัญญา', hullType: 'SH', vesselSize: 860,
+      imo: 'IMO 9100036', type: 'lpg_carrier', typeTh: 'เรือบรรทุก LPG',
+      status: 'waiting', statusTh: 'รอเข้าท่า',
+      lat: 9.18, lng: 99.40, speed: 0.2, heading: 150,
+      cargo: 'ดีเซล 2,600 ตัน', origin: 'มาบตาพุด', destination: 'สุราษฎร์ธานี',
+      eta: '19 มี.ค. 2026 22:30', dwt: '3,200 DWT',
+      trail: [{lat:12.65,lng:101.15},{lat:10.80,lng:100.25},{lat:9.18,lng:99.40}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 28*60000)
+    },
+    {
+      id: 'V037', name: 'PATARAVARIN 4',
+      operator: 'บริษัทนทลินจำกัด',
+      shipOwner: 'บริษัท นทลิน จำกัด', shipManagement: 'บริษัท วี.ซี.ซี. อินเตอร์มารีนเซอร์วิส แอนด์ ทรานสปอร์ต จำกัด',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 2125,
+      imo: 'IMO 9100037', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 12.50, lng: 100.95, speed: 7.0, heading: 170,
+      cargo: 'LPG 2,000 ตัน', origin: 'แหลมฉบัง', destination: 'ชุมพร',
+      eta: '21 มี.ค. 2026 10:00', dwt: '2,600 DWT',
+      trail: [{lat:13.08,lng:100.88},{lat:12.80,lng:100.92},{lat:12.50,lng:100.95}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 4*60000)
+    },
+    {
+      id: 'V038', name: 'MT.P.PATARATHIDA',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท วี.ซี.ซี. อินเตอร์มารีนเซอร์วิส แอนด์ ทรานสปอร์ต จำกัด', shipManagement: 'บริษัท วี.ซี.ซี. อินเตอร์มารีนเซอร์วิส แอนด์ ทรานสปอร์ต จำกัด',
+      iacsClass: 'TG', yearBuilt: 1994,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 2156,
+      imo: 'IMO 9100038', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 8.00, lng: 98.50, speed: 6.8, heading: 340,
+      cargo: 'น้ำมันดิบ 1,600 ตัน', origin: 'ภูเก็ต', destination: 'ระนอง',
+      eta: '20 มี.ค. 2026 12:00', dwt: '2,000 DWT',
+      trail: [{lat:7.82,lng:98.37},{lat:7.90,lng:98.43},{lat:8.00,lng:98.50}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 10*60000)
+    },
+    {
+      id: 'V039', name: 'MT.SUCHANYAPORN',
+      operator: 'บริษัทเอ็น.ที.แอล.จำกัด',
+      shipOwner: 'บริษัท วี.ซี.ซี. อินเตอร์มารีนเซอร์วิส แอนด์ ทรานสปอร์ต จำกัด', shipManagement: 'บริษัท วี.ซี.ซี. อินเตอร์มารีนเซอร์วิส แอนด์ ทรานสปอร์ต จำกัด',
+      iacsClass: 'TG', yearBuilt: 1993,
+      product: 'น้ำมันใส', contractType: 'สัญญา', hullType: 'SH,DB', vesselSize: 2156,
+      imo: 'IMO 9100039', type: 'oil_tanker', typeTh: 'เรือบรรทุกน้ำมันใส',
+      status: 'sailing', statusTh: 'กำลังแล่น',
+      lat: 11.00, lng: 100.40, speed: 8.0, heading: 20,
+      cargo: 'LPG 1,800 ตัน', origin: 'สุราษฎร์ธานี', destination: 'ศรีราชา',
+      eta: '20 มี.ค. 2026 22:00', dwt: '2,400 DWT',
+      trail: [{lat:9.14,lng:99.33},{lat:10.00,lng:99.85},{lat:11.00,lng:100.40}],
+      dataSource: 'mock', lastUpdate: new Date(Date.now() - 7*60000)
+    }
+  ];
+
+  // ============ STATE ============
+  var map, selectedVesselId = null;
+  var markers = {};
+  var routeLayer = null;
+  var trailLayer = null;
+  var destMarker = null;
+  var originMarker = null;
+
+  var statusColors = {
+    sailing: '#10b981',
+    docked: '#3b82f6',
+    waiting: '#f59e0b',
+    maintenance: '#ef4444'
+  };
+
+  // ============ SVG SHIP ICON ============
+  function createShipIcon(color, heading, isSelected) {
+    var glow = '';
+    if (isSelected) {
+      glow = '<circle cx="20" cy="20" r="18" fill="' + color + '" opacity="0.25">' +
+        '<animate attributeName="r" values="18;26;18" dur="1.5s" repeatCount="indefinite"/>' +
+        '<animate attributeName="opacity" values="0.25;0;0.25" dur="1.5s" repeatCount="indefinite"/>' +
+        '</circle>';
+    }
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">' +
+      glow +
+      '<g transform="rotate(' + heading + ', 20, 20)">' +
+      '<path d="M20 4 L28 30 L20 26 L12 30 Z" fill="' + color + '" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '<circle cx="20" cy="18" r="3" fill="#fff" opacity="0.7"/>' +
+      '</g></svg>';
+    return L.divIcon({
+      html: svg,
+      className: '',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      popupAnchor: [0, -22]
+    });
+  }
+
+  // ============ PORT ICON ============
+  function createPortIcon() {
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">' +
+      '<circle cx="9" cy="9" r="7" fill="#fff" stroke="#003399" stroke-width="2"/>' +
+      '<circle cx="9" cy="9" r="3" fill="#003399"/></svg>';
+    return L.divIcon({ html: svg, className: '', iconSize: [18, 18], iconAnchor: [9, 9] });
+  }
+
+  // ============ INIT MAP ============
+  function initMap() {
+    map = L.map('map', {
+      center: [10, 101],
+      zoom: 6,
+      zoomControl: false
+    });
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '\u00a9 OpenStreetMap contributors',
+      maxZoom: 18
+    }).addTo(map);
+
+    // Add port markers
+    var portNames = Object.keys(PORTS);
+    for (var i = 0; i < portNames.length; i++) {
+      var pName = portNames[i];
+      var coords = PORTS[pName];
+      L.marker([coords.lat, coords.lng], { icon: createPortIcon() })
+        .addTo(map)
+        .bindTooltip(pName, {
+          permanent: false,
+          direction: 'top',
+          offset: [0, -10]
+        });
+    }
+  }
+
+  // ============ ADD VESSEL MARKERS ============
+  function addVesselMarkers() {
+    for (var i = 0; i < vessels.length; i++) {
+      var v = vessels[i];
+      var icon = createShipIcon(statusColors[v.status], v.heading, false);
+      var marker = L.marker([v.lat, v.lng], { icon: icon, riseOnHover: true })
+        .addTo(map);
+
+      marker.bindPopup(createPopupContent(v), { maxWidth: 320 });
+      marker.on('click', (function(vid) {
+        return function() { selectVessel(vid); };
+      })(v.id));
+      markers[v.id] = marker;
+    }
+  }
+
+  // ============ POPUP CONTENT ============
+  function createPopupContent(v) {
+    var badgeClass = 'badge-' + v.status;
+    var companyColor = COMPANY_COLORS[v.operator] || '#6b7280';
+    var el = document.createElement('div');
+    el.className = 'vessel-popup';
+
+    var header = document.createElement('div');
+    header.className = 'popup-header';
+    var nameEl = document.createElement('div');
+    nameEl.className = 'popup-name';
+    nameEl.textContent = v.name;
+    var statusEl = document.createElement('span');
+    statusEl.className = 'vessel-status-badge ' + badgeClass;
+    statusEl.textContent = v.statusTh;
+    header.appendChild(nameEl);
+    header.appendChild(statusEl);
+    el.appendChild(header);
+
+    // Company row in popup
+    var companyRow = document.createElement('div');
+    companyRow.className = 'popup-company';
+    var cDot = document.createElement('span');
+    cDot.className = 'company-dot';
+    cDot.style.background = companyColor;
+    companyRow.appendChild(cDot);
+    companyRow.appendChild(document.createTextNode(v.operator));
+    el.appendChild(companyRow);
+
+    var grid = document.createElement('div');
+    grid.className = 'popup-grid';
+    var fields = [
+      ['IMO', v.imo], ['\u0e1b\u0e23\u0e30\u0e40\u0e20\u0e17', v.typeTh],
+      ['\u0e04\u0e27\u0e32\u0e21\u0e40\u0e23\u0e47\u0e27', v.speed + ' \u0e19\u0e2d\u0e15'], ['\u0e17\u0e34\u0e28\u0e17\u0e32\u0e07', v.heading + '\u00b0'],
+      ['\u0e23\u0e30\u0e27\u0e32\u0e07\u0e1a\u0e23\u0e23\u0e17\u0e38\u0e01', v.dwt], ['\u0e2a\u0e34\u0e19\u0e04\u0e49\u0e32', v.cargo]
+    ];
+    for (var i = 0; i < fields.length; i++) {
+      var item = document.createElement('div');
+      item.className = 'popup-item';
+      var label = document.createElement('div');
+      label.className = 'popup-label';
+      label.textContent = fields[i][0];
+      var value = document.createElement('div');
+      value.className = 'popup-value';
+      value.textContent = fields[i][1];
+      item.appendChild(label);
+      item.appendChild(value);
+      grid.appendChild(item);
+    }
+    el.appendChild(grid);
+
+    var route = document.createElement('div');
+    route.className = 'popup-route';
+    var routeIcon = document.createElement('i');
+    routeIcon.className = 'fas fa-route';
+    route.appendChild(routeIcon);
+    var origSpan = document.createElement('span');
+    origSpan.textContent = ' ' + v.origin + ' ';
+    route.appendChild(origSpan);
+    var arrowIcon = document.createElement('i');
+    arrowIcon.className = 'fas fa-arrow-right';
+    arrowIcon.style.fontSize = '10px';
+    route.appendChild(arrowIcon);
+    var destSpan = document.createElement('span');
+    destSpan.textContent = ' ' + v.destination;
+    route.appendChild(destSpan);
+    el.appendChild(route);
+
+    var eta = document.createElement('div');
+    eta.className = 'popup-eta';
+    var clockIcon = document.createElement('i');
+    clockIcon.className = 'far fa-clock';
+    eta.appendChild(clockIcon);
+    eta.appendChild(document.createTextNode(' ETA: ' + v.eta));
+    el.appendChild(eta);
+
+    return el;
+  }
+
+  // ============ SELECT VESSEL ============
+  function selectVessel(id) {
+    var prev = selectedVesselId;
+    selectedVesselId = id;
+
+    // Reset previous marker
+    if (prev && markers[prev]) {
+      var pv = findVessel(prev);
+      if (pv) markers[prev].setIcon(createShipIcon(statusColors[pv.status], pv.heading, false));
+    }
+
+    // Highlight new
+    var v = findVessel(id);
+    if (v && markers[id]) {
+      markers[id].setIcon(createShipIcon(statusColors[v.status], v.heading, true));
+      map.flyTo([v.lat, v.lng], 8, { duration: 0.8 });
+      markers[id].openPopup();
+      drawRoute(v);
+    }
+
+    // Update sidebar cards
+    var cards = document.querySelectorAll('.vessel-card');
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].dataset.id === id) {
+        cards[i].classList.add('active');
+      } else {
+        cards[i].classList.remove('active');
+      }
+    }
+
+    // Scroll card into view
+    var card = document.querySelector('.vessel-card[data-id="' + id + '"]');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function findVessel(id) {
+    for (var i = 0; i < vessels.length; i++) {
+      if (vessels[i].id === id) return vessels[i];
+    }
+    return null;
+  }
+
+  // ============ DRAW ROUTE ============
+  function drawRoute(v) {
+    clearRoute();
+
+    // Trail (past path) - dotted
+    if (v.trail && v.trail.length > 1) {
+      var trailCoords = [];
+      for (var i = 0; i < v.trail.length; i++) {
+        trailCoords.push([v.trail[i].lat, v.trail[i].lng]);
+      }
+      trailLayer = L.polyline(trailCoords, {
+        color: statusColors[v.status],
+        weight: 2.5,
+        dashArray: '6, 8',
+        opacity: 0.6
+      }).addTo(map);
+    }
+
+    // Future route - dashed line to destination
+    var destPort = PORTS[v.destination];
+    if (destPort && v.status === 'sailing') {
+      routeLayer = L.polyline(
+        [[v.lat, v.lng], [destPort.lat, destPort.lng]],
+        { color: statusColors[v.status], weight: 2, dashArray: '10, 6', opacity: 0.8 }
+      ).addTo(map);
+
+      destMarker = L.circleMarker([destPort.lat, destPort.lng], {
+        radius: 8, color: statusColors[v.status], fillColor: '#fff',
+        fillOpacity: 1, weight: 2.5
+      }).addTo(map).bindTooltip(v.destination, { permanent: true, direction: 'top', offset: [0, -10] });
+    }
+
+    // Origin marker
+    var origPort = PORTS[v.origin];
+    if (origPort) {
+      originMarker = L.circleMarker([origPort.lat, origPort.lng], {
+        radius: 6, color: '#003399', fillColor: '#003399',
+        fillOpacity: 0.3, weight: 2
+      }).addTo(map);
+    }
+
+    // Route info box
+    if (destPort) {
+      var dist = haversine(v.lat, v.lng, destPort.lat, destPort.lng);
+      document.getElementById('riTitle').textContent = v.name;
+      document.getElementById('riOrigin').textContent = v.origin;
+      document.getElementById('riDest').textContent = v.destination;
+      document.getElementById('riDist').textContent = dist.toFixed(0) + ' \u0e01\u0e21.';
+      document.getElementById('riEta').textContent = v.eta;
+      document.getElementById('routeInfoBox').style.display = 'block';
+    }
+  }
+
+  function clearRoute() {
+    if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+    if (trailLayer) { map.removeLayer(trailLayer); trailLayer = null; }
+    if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+    if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
+    document.getElementById('routeInfoBox').style.display = 'none';
+  }
+
+  function haversine(lat1, lon1, lat2, lon2) {
+    var R = 6371;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLon = (lon2 - lon1) * Math.PI / 180;
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // ============ RENDER VESSEL LIST ============
+  function renderVesselList() {
+    var search = document.getElementById('searchInput').value.toLowerCase();
+    var activeChips = document.querySelectorAll('#statusFilters .filter-chip.active');
+    var activeStatuses = [];
+    for (var i = 0; i < activeChips.length; i++) {
+      activeStatuses.push(activeChips[i].dataset.status);
+    }
+    var typeFilter = document.getElementById('typeFilter').value;
+    var companyFilter = document.getElementById('companyFilter').value;
+
+    var filtered = [];
+    for (var i = 0; i < vessels.length; i++) {
+      var v = vessels[i];
+      var matchSearch = v.name.toLowerCase().indexOf(search) !== -1 ||
+                        v.origin.toLowerCase().indexOf(search) !== -1 ||
+                        v.destination.toLowerCase().indexOf(search) !== -1 ||
+                        v.imo.toLowerCase().indexOf(search) !== -1 ||
+                        v.operator.toLowerCase().indexOf(search) !== -1;
+      var matchStatus = activeStatuses.indexOf(v.status) !== -1;
+      var matchType = typeFilter === 'all' || v.type === typeFilter;
+      var matchCompany = companyFilter === 'all' || v.operator === companyFilter;
+      if (matchSearch && matchStatus && matchType && matchCompany) {
+        filtered.push(v);
+      }
+    }
+
+    var list = document.getElementById('vesselList');
+    while (list.firstChild) {
+      list.removeChild(list.firstChild);
+    }
+
+    for (var i = 0; i < filtered.length; i++) {
+      var v = filtered[i];
+      var companyColor = COMPANY_COLORS[v.operator] || '#6b7280';
+      var card = document.createElement('div');
+      card.className = 'vessel-card' + (selectedVesselId === v.id ? ' active' : '');
+      card.dataset.id = v.id;
+      card.setAttribute('onclick', 'window._selectVessel("' + v.id + '")');
+
+      var cardHeader = document.createElement('div');
+      cardHeader.className = 'vessel-card-header';
+      var nameEl = document.createElement('div');
+      nameEl.className = 'vessel-name';
+      nameEl.textContent = v.name;
+      var badgeEl = document.createElement('span');
+      badgeEl.className = 'vessel-status-badge badge-' + v.status;
+      badgeEl.textContent = v.statusTh;
+      cardHeader.appendChild(nameEl);
+      cardHeader.appendChild(badgeEl);
+
+      // Company name row
+      var companyDiv = document.createElement('div');
+      companyDiv.className = 'vessel-card-company';
+      var cDot = document.createElement('span');
+      cDot.className = 'company-dot';
+      cDot.style.background = companyColor;
+      companyDiv.appendChild(cDot);
+      companyDiv.appendChild(document.createTextNode(v.operator));
+
+      var cardBody = document.createElement('div');
+      cardBody.className = 'vessel-card-body';
+      var routeDiv = document.createElement('div');
+      routeDiv.className = 'route';
+      var origText = document.createElement('span');
+      origText.textContent = v.origin;
+      var arrowI = document.createElement('i');
+      arrowI.className = 'fas fa-arrow-right';
+      var destText = document.createElement('span');
+      destText.textContent = v.destination;
+      routeDiv.appendChild(origText);
+      routeDiv.appendChild(arrowI);
+      routeDiv.appendChild(destText);
+      var speedDiv = document.createElement('div');
+      speedDiv.className = 'speed';
+      speedDiv.textContent = v.speed > 0 ? v.speed + ' \u0e19\u0e2d\u0e15' : '-';
+      cardBody.appendChild(routeDiv);
+      cardBody.appendChild(speedDiv);
+
+      var cardFooter = document.createElement('div');
+      cardFooter.className = 'vessel-card-footer';
+      var typeSpan = document.createElement('span');
+      typeSpan.textContent = v.typeTh;
+      var imoSpan = document.createElement('span');
+      imoSpan.textContent = v.imo;
+      cardFooter.appendChild(typeSpan);
+      cardFooter.appendChild(imoSpan);
+
+      // Data quality row
+      var dsRow = document.createElement('div');
+      dsRow.className = 'vessel-card-datasource';
+
+      var srcTag = document.createElement('span');
+      var srcClass = 'ds-source-tag';
+      var srcIcon = 'fa-flask';
+      var srcLabel = 'Mock';
+      if (v.dataSource === 'ais') { srcClass += ' src-ais'; srcIcon = 'fa-satellite-dish'; srcLabel = 'AIS'; }
+      else if (v.dataSource === 'manual') { srcClass += ' src-manual'; srcIcon = 'fa-pen'; srcLabel = 'Manual'; }
+      else { srcClass += ' src-mock'; }
+      srcTag.className = srcClass;
+      var srcI = document.createElement('i');
+      srcI.className = 'fas ' + srcIcon;
+      srcTag.appendChild(srcI);
+      srcTag.appendChild(document.createTextNode(' ' + srcLabel));
+      dsRow.appendChild(srcTag);
+
+      var ageTag = document.createElement('span');
+      ageTag.className = 'ds-age-tag';
+      var ageDot = document.createElement('span');
+      ageDot.className = 'age-dot';
+      var ageMinutes = Math.round((Date.now() - v.lastUpdate.getTime()) / 60000);
+      var ageText = '';
+      if (ageMinutes < 1) { ageText = 'เพิ่งอัปเดต'; ageDot.classList.add('fresh'); }
+      else if (ageMinutes < 15) { ageText = ageMinutes + ' นาทีที่แล้ว'; ageDot.classList.add('fresh'); }
+      else if (ageMinutes < 60) { ageText = ageMinutes + ' นาทีที่แล้ว'; ageDot.classList.add('moderate'); }
+      else { ageText = Math.round(ageMinutes / 60) + ' ชม.ที่แล้ว'; ageDot.classList.add('stale'); }
+      ageTag.appendChild(ageDot);
+      ageTag.appendChild(document.createTextNode(' ' + ageText));
+      dsRow.appendChild(ageTag);
+
+      card.appendChild(cardHeader);
+      card.appendChild(companyDiv);
+      card.appendChild(cardBody);
+      card.appendChild(cardFooter);
+      card.appendChild(dsRow);
+      list.appendChild(card);
+    }
+
+    // Update marker visibility
+    for (var i = 0; i < vessels.length; i++) {
+      var v = vessels[i];
+      var show = false;
+      for (var j = 0; j < filtered.length; j++) {
+        if (filtered[j].id === v.id) { show = true; break; }
+      }
+      if (show) {
+        if (!map.hasLayer(markers[v.id])) markers[v.id].addTo(map);
+      } else {
+        if (map.hasLayer(markers[v.id])) map.removeLayer(markers[v.id]);
+      }
+    }
+
+    updateStats(filtered);
+  }
+
+  // ============ UPDATE STATS ============
+  function updateStats(filtered) {
+    var counts = { total: 0, sailing: 0, docked: 0, waiting: 0, maintenance: 0 };
+    for (var i = 0; i < filtered.length; i++) {
+      counts.total++;
+      counts[filtered[i].status]++;
+    }
+    document.getElementById('statTotal').textContent = counts.total;
+    document.getElementById('statSailing').textContent = counts.sailing;
+    document.getElementById('statDocked').textContent = counts.docked;
+    document.getElementById('statWaiting').textContent = counts.waiting;
+    document.getElementById('statMaintenance').textContent = counts.maintenance;
+  }
+
+  // ============ UPDATE TIME ============
+  function updateTime() {
+    var now = new Date();
+    var opts = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+    var dateOpts = { day: '2-digit', month: 'short', year: 'numeric' };
+    var timeEl = document.getElementById('headerTime');
+    while (timeEl.firstChild) timeEl.removeChild(timeEl.firstChild);
+    var icon = document.createElement('i');
+    icon.className = 'far fa-clock';
+    timeEl.appendChild(icon);
+    timeEl.appendChild(document.createTextNode(' ' + now.toLocaleDateString('th-TH', dateOpts) + ' ' + now.toLocaleTimeString('th-TH', opts)));
+  }
+
+  // ============ UPDATE SETTINGS MODAL ============
+  function updateSettingsModal() {
+    var cfg = dataSourceConfig;
+    var now = new Date();
+    var timeOpts = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+    var dateOpts = { day: '2-digit', month: 'short', year: 'numeric' };
+
+    document.getElementById('settingsProviderName').textContent = cfg.provider;
+    var badge = document.getElementById('settingsProviderBadge');
+    badge.className = 'provider-badge ' + cfg.providerType;
+
+    var connEl = document.getElementById('settingsConnStatus');
+    if (cfg.status === 'connected') {
+      while (connEl.firstChild) connEl.removeChild(connEl.firstChild);
+      var ci = document.createElement('i');
+      ci.className = 'fas fa-circle';
+      ci.style.fontSize = '8px';
+      connEl.appendChild(ci);
+      connEl.appendChild(document.createTextNode(' เชื่อมต่อแล้ว'));
+      connEl.className = 'sr-value text-success';
+    } else {
+      while (connEl.firstChild) connEl.removeChild(connEl.firstChild);
+      var ci2 = document.createElement('i');
+      ci2.className = 'fas fa-circle';
+      ci2.style.fontSize = '8px';
+      connEl.appendChild(ci2);
+      connEl.appendChild(document.createTextNode(' ไม่ได้เชื่อมต่อ'));
+      connEl.className = 'sr-value text-danger';
+    }
+
+    document.getElementById('settingsDataMode').textContent = cfg.dataMode;
+
+    document.getElementById('settingsLastSync').textContent =
+      cfg.lastSync.toLocaleDateString('th-TH', dateOpts) + ' ' +
+      cfg.lastSync.toLocaleTimeString('th-TH', timeOpts);
+
+    document.getElementById('settingsLastPos').textContent =
+      cfg.lastPositionUpdate.toLocaleDateString('th-TH', dateOpts) + ' ' +
+      cfg.lastPositionUpdate.toLocaleTimeString('th-TH', timeOpts);
+
+    var ageMin = Math.round((now - cfg.lastPositionUpdate) / 60000);
+    var ageEl = document.getElementById('settingsDataAge');
+    while (ageEl.firstChild) ageEl.removeChild(ageEl.firstChild);
+    var ageI = document.createElement('i');
+    if (ageMin < 15) {
+      ageI.className = 'fas fa-check-circle';
+      ageEl.className = 'sr-value text-success';
+      ageEl.appendChild(ageI);
+      ageEl.appendChild(document.createTextNode(' ข้อมูลเป็นปัจจุบัน (' + ageMin + ' นาที)'));
+    } else if (ageMin < 60) {
+      ageI.className = 'fas fa-exclamation-circle';
+      ageEl.className = 'sr-value text-warning';
+      ageEl.appendChild(ageI);
+      ageEl.appendChild(document.createTextNode(' ค่อนข้างเก่า (' + ageMin + ' นาที)'));
+    } else {
+      ageI.className = 'fas fa-times-circle';
+      ageEl.className = 'sr-value text-danger';
+      ageEl.appendChild(ageI);
+      ageEl.appendChild(document.createTextNode(' ข้อมูลเก่า (' + Math.round(ageMin / 60) + ' ชม.)'));
+    }
+
+    document.getElementById('settingsApiPlan').textContent = cfg.apiPlan;
+    var remaining = cfg.rateLimitTotal - cfg.rateLimitUsed;
+    document.getElementById('settingsRateLimit').textContent =
+      cfg.providerType === 'mock' ? 'ไม่จำกัด' : remaining + ' / ' + cfg.rateLimitTotal;
+    var pct = cfg.rateLimitTotal > 0 ? ((remaining / cfg.rateLimitTotal) * 100) : 100;
+    document.getElementById('settingsRateBar').style.width = pct + '%';
+    document.getElementById('settingsRateBar').style.background =
+      pct > 50 ? 'var(--success)' : pct > 20 ? 'var(--warning)' : 'var(--danger)';
+    document.getElementById('settingsSignal').textContent = cfg.signalQuality;
+
+    document.getElementById('dsName').textContent = cfg.provider;
+    var dot = document.getElementById('dsDot');
+    dot.className = 'ds-dot ' + cfg.status;
+  }
+
+  // ============ EVENT LISTENERS ============
+  function bindEvents() {
+    document.getElementById('searchInput').addEventListener('input', renderVesselList);
+
+    var chips = document.querySelectorAll('#statusFilters .filter-chip');
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].addEventListener('click', function(e) {
+        e.preventDefault();
+        this.classList.toggle('active');
+        var cb = this.querySelector('input');
+        cb.checked = this.classList.contains('active');
+        renderVesselList();
+      });
+    }
+
+    document.getElementById('typeFilter').addEventListener('change', renderVesselList);
+    document.getElementById('companyFilter').addEventListener('change', renderVesselList);
+
+    document.getElementById('riClose').addEventListener('click', clearRoute);
+
+    document.getElementById('sidebarToggle').addEventListener('click', function() {
+      document.getElementById('sidebar').classList.toggle('open');
+    });
+
+    // Settings modal
+    document.getElementById('btnSettings').addEventListener('click', function() {
+      updateSettingsModal();
+      document.getElementById('settingsOverlay').classList.add('open');
+    });
+    document.getElementById('settingsClose').addEventListener('click', function() {
+      document.getElementById('settingsOverlay').classList.remove('open');
+    });
+    document.getElementById('settingsOverlay').addEventListener('click', function(e) {
+      if (e.target === this) this.classList.remove('open');
+    });
+
+    map.on('click', function() {
+      document.getElementById('sidebar').classList.remove('open');
+      if (selectedVesselId) {
+        var pv = findVessel(selectedVesselId);
+        if (pv) markers[selectedVesselId].setIcon(createShipIcon(statusColors[pv.status], pv.heading, false));
+        selectedVesselId = null;
+        clearRoute();
+        var cards = document.querySelectorAll('.vessel-card');
+        for (var i = 0; i < cards.length; i++) cards[i].classList.remove('active');
+      }
+    });
+  }
+
+  // ============ EXPOSE TO GLOBAL ============
+  window._selectVessel = function(id) { selectVessel(id); };
+
+  // ============ VESSEL CONFIG / LOCALSTORAGE ============
+  var LS_KEY = 'or-vessel-config';
+  var defaultVesselConfigs = null; // will be set on init
+
+  function extractConfig(v) {
+    return {
+      id: v.id, name: v.name, operator: v.operator, imo: v.imo,
+      type: v.type, typeTh: v.typeTh,
+      mmsi: v.mmsi || '', shipOwner: v.shipOwner || '', shipManagement: v.shipManagement || '',
+      iacsClass: v.iacsClass || '', yearBuilt: v.yearBuilt || '',
+      grossTonnage: v.grossTonnage || '', deadWeight: v.deadWeight || '',
+      lengthM: v.lengthM || '', beamM: v.beamM || '', flag: v.flag || 'Thailand'
+    };
+  }
+
+  function extractPositionData(v) {
+    return {
+      status: v.status, statusTh: v.statusTh,
+      lat: v.lat, lng: v.lng, speed: v.speed, heading: v.heading,
+      cargo: v.cargo, origin: v.origin, destination: v.destination,
+      eta: v.eta, dwt: v.dwt, trail: v.trail,
+      dataSource: v.dataSource, lastUpdate: v.lastUpdate
+    };
+  }
+
+  var TYPE_MAP = {
+    'oil_tanker': 'เรือบรรทุกน้ำมัน',
+    'product_tanker': 'เรือบรรทุกผลิตภัณฑ์ปิโตรเลียม',
+    'chemical_tanker': 'เรือบรรทุกเคมีภัณฑ์',
+    'lpg_carrier': 'เรือบรรทุก LPG',
+    'barge': 'เรือบาร์จ'
+  };
+
+  function saveConfigToLS() {
+    var configs = [];
+    for (var i = 0; i < vessels.length; i++) {
+      configs.push(extractConfig(vessels[i]));
+    }
+    try { localStorage.setItem(LS_KEY, JSON.stringify(configs)); } catch(e) {}
+  }
+
+  function loadConfigFromLS() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch(e) {}
+    return null;
+  }
+
+  function mergeConfigIntoVessels(configs) {
+    // Build a map of existing position data by id and name
+    var posById = {};
+    var posByName = {};
+    for (var i = 0; i < vessels.length; i++) {
+      posById[vessels[i].id] = extractPositionData(vessels[i]);
+      posByName[vessels[i].name] = extractPositionData(vessels[i]);
+    }
+
+    var newVessels = [];
+    for (var i = 0; i < configs.length; i++) {
+      var cfg = configs[i];
+      var pos = posById[cfg.id] || posByName[cfg.name] || null;
+      if (!pos) {
+        // Generate random position in Gulf of Thailand
+        pos = {
+          status: 'docked', statusTh: 'จอดเทียบท่า',
+          lat: 7 + Math.random() * 6, lng: 99 + Math.random() * 3,
+          speed: 0, heading: Math.floor(Math.random() * 360),
+          cargo: 'ว่าง', origin: '-', destination: '-',
+          eta: '-', dwt: (cfg.deadWeight || '-') + (cfg.deadWeight ? ' DWT' : ''),
+          trail: [], dataSource: 'manual', lastUpdate: new Date()
+        };
+      }
+      var v = {};
+      // config fields
+      v.id = cfg.id || ('V' + String(100 + i).slice(-3));
+      v.name = cfg.name;
+      v.operator = cfg.operator || '';
+      v.imo = cfg.imo || '';
+      v.type = cfg.type || 'oil_tanker';
+      v.typeTh = cfg.typeTh || TYPE_MAP[v.type] || v.type;
+      v.mmsi = cfg.mmsi || '';
+      v.shipOwner = cfg.shipOwner || '';
+      v.shipManagement = cfg.shipManagement || '';
+      v.iacsClass = cfg.iacsClass || '';
+      v.yearBuilt = cfg.yearBuilt || '';
+      v.grossTonnage = cfg.grossTonnage || '';
+      v.deadWeight = cfg.deadWeight || '';
+      v.lengthM = cfg.lengthM || '';
+      v.beamM = cfg.beamM || '';
+      v.flag = cfg.flag || 'Thailand';
+      // position fields
+      v.status = pos.status; v.statusTh = pos.statusTh;
+      v.lat = pos.lat; v.lng = pos.lng;
+      v.speed = pos.speed; v.heading = pos.heading;
+      v.cargo = pos.cargo; v.origin = pos.origin; v.destination = pos.destination;
+      v.eta = pos.eta; v.dwt = pos.dwt; v.trail = pos.trail;
+      v.dataSource = pos.dataSource;
+      v.lastUpdate = pos.lastUpdate instanceof Date ? pos.lastUpdate : new Date(pos.lastUpdate);
+      newVessels.push(v);
+    }
+    return newVessels;
+  }
+
+  function rebuildMapAndSidebar() {
+    // Remove all existing markers
+    for (var id in markers) {
+      if (markers.hasOwnProperty(id) && map.hasLayer(markers[id])) {
+        map.removeLayer(markers[id]);
+      }
+    }
+    markers = {};
+    clearRoute();
+    selectedVesselId = null;
+    addVesselMarkers();
+    renderVesselList();
+    rebuildCompanyFilter();
+    renderAdminTable();
+  }
+
+  function rebuildCompanyFilter() {
+    var sel = document.getElementById('companyFilter');
+    var ops = {};
+    for (var i = 0; i < vessels.length; i++) {
+      var op = vessels[i].operator;
+      if (op) ops[op] = (ops[op] || 0) + 1;
+    }
+    while (sel.firstChild) sel.removeChild(sel.firstChild);
+    var allOpt = document.createElement('option');
+    allOpt.value = 'all'; allOpt.textContent = 'ทุกบริษัท';
+    sel.appendChild(allOpt);
+    var opNames = Object.keys(ops).sort();
+    for (var i = 0; i < opNames.length; i++) {
+      var opt = document.createElement('option');
+      opt.value = opNames[i];
+      opt.textContent = opNames[i] + ' (' + ops[opNames[i]] + ')';
+      sel.appendChild(opt);
+    }
+  }
+
+  function getNextVesselId() {
+    var maxNum = 0;
+    for (var i = 0; i < vessels.length; i++) {
+      var n = parseInt(vessels[i].id.replace('V', ''), 10);
+      if (n > maxNum) maxNum = n;
+    }
+    return 'V' + String(maxNum + 1).padStart(3, '0');
+  }
+
+  // ============ SIDEBAR TAB SWITCHING ============
+  function initSidebarTabs() {
+    var tabs = document.querySelectorAll('.sidebar-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].addEventListener('click', function() {
+        var tabName = this.dataset.tab;
+        for (var j = 0; j < tabs.length; j++) tabs[j].classList.remove('active');
+        this.classList.add('active');
+        if (tabName === 'map') {
+          document.getElementById('sidebarMapContent').classList.remove('hidden');
+          document.getElementById('adminPanel').classList.remove('active');
+        } else {
+          document.getElementById('sidebarMapContent').classList.add('hidden');
+          document.getElementById('adminPanel').classList.add('active');
+          renderAdminTable();
+        }
+      });
+    }
+  }
+
+  // ============ ADMIN TABLE ============
+  var adminSortCol = 'name';
+  var adminSortAsc = true;
+
+  function renderAdminTable() {
+    var search = (document.getElementById('adminSearch') ? document.getElementById('adminSearch').value : '').toLowerCase();
+    var filtered = [];
+    for (var i = 0; i < vessels.length; i++) {
+      var v = vessels[i];
+      if (search && v.name.toLowerCase().indexOf(search) === -1 &&
+          (v.operator || '').toLowerCase().indexOf(search) === -1 &&
+          (v.shipOwner || '').toLowerCase().indexOf(search) === -1 &&
+          (v.imo || '').toLowerCase().indexOf(search) === -1) continue;
+      filtered.push(v);
+    }
+    // Sort
+    filtered.sort(function(a, b) {
+      var va = '', vb = '';
+      switch (adminSortCol) {
+        case 'name': va = a.name; vb = b.name; break;
+        case 'operator': va = a.operator || ''; vb = b.operator || ''; break;
+        case 'shipOwner': va = a.shipOwner || ''; vb = b.shipOwner || ''; break;
+        case 'iacsClass': va = a.iacsClass || ''; vb = b.iacsClass || ''; break;
+        case 'yearBuilt': va = a.yearBuilt || 0; vb = b.yearBuilt || 0; break;
+        default: va = a.name; vb = b.name;
+      }
+      if (typeof va === 'string') {
+        var cmp = va.localeCompare(vb);
+        return adminSortAsc ? cmp : -cmp;
+      }
+      return adminSortAsc ? va - vb : vb - va;
+    });
+
+    var wrap = document.getElementById('adminTableWrap');
+    while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+
+    var table = document.createElement('table');
+    table.className = 'admin-table';
+
+    // Header
+    var thead = document.createElement('thead');
+    var tr = document.createElement('tr');
+    var cols = [
+      { key: '#', label: '#', sortable: false },
+      { key: 'name', label: 'ชื่อเรือ', sortable: true },
+      { key: 'operator', label: 'ผู้ขนส่ง', sortable: true },
+      { key: 'shipOwner', label: 'Ship Owner', sortable: true },
+      { key: 'iacsClass', label: 'IACS', sortable: true },
+      { key: 'yearBuilt', label: 'ปีสร้าง', sortable: true },
+      { key: 'actions', label: 'Actions', sortable: false }
+    ];
+    for (var c = 0; c < cols.length; c++) {
+      var th = document.createElement('th');
+      th.textContent = cols[c].label;
+      if (cols[c].sortable) {
+        var arrow = document.createElement('span');
+        arrow.className = 'sort-arrow' + (adminSortCol === cols[c].key ? ' active' : '');
+        arrow.textContent = adminSortCol === cols[c].key ? (adminSortAsc ? ' \u25B2' : ' \u25BC') : ' \u25B2';
+        th.appendChild(arrow);
+        th.dataset.sortCol = cols[c].key;
+        th.addEventListener('click', function() {
+          var col = this.dataset.sortCol;
+          if (adminSortCol === col) adminSortAsc = !adminSortAsc;
+          else { adminSortCol = col; adminSortAsc = true; }
+          renderAdminTable();
+        });
+      }
+      tr.appendChild(th);
+    }
+    thead.appendChild(tr);
+    table.appendChild(thead);
+
+    // Body
+    var tbody = document.createElement('tbody');
+    for (var i = 0; i < filtered.length; i++) {
+      var v = filtered[i];
+      var row = document.createElement('tr');
+
+      var tdNum = document.createElement('td');
+      tdNum.textContent = i + 1;
+      row.appendChild(tdNum);
+
+      var tdName = document.createElement('td');
+      tdName.textContent = v.name;
+      tdName.style.fontWeight = '600';
+      row.appendChild(tdName);
+
+      var tdOp = document.createElement('td');
+      tdOp.textContent = v.operator || '-';
+      tdOp.style.maxWidth = '120px';
+      tdOp.style.overflow = 'hidden';
+      tdOp.style.textOverflow = 'ellipsis';
+      row.appendChild(tdOp);
+
+      var tdOwner = document.createElement('td');
+      tdOwner.textContent = v.shipOwner || '-';
+      row.appendChild(tdOwner);
+
+      var tdIacs = document.createElement('td');
+      tdIacs.textContent = v.iacsClass || '-';
+      row.appendChild(tdIacs);
+
+      var tdYear = document.createElement('td');
+      tdYear.textContent = v.yearBuilt || '-';
+      row.appendChild(tdYear);
+
+      var tdActions = document.createElement('td');
+      tdActions.className = 'actions-cell';
+      var btnEdit = document.createElement('button');
+      btnEdit.className = 'btn-sm btn-edit';
+      btnEdit.innerHTML = '<i class="fas fa-edit"></i> แก้ไข';
+      btnEdit.dataset.vid = v.id;
+      btnEdit.addEventListener('click', function() { openEditForm(this.dataset.vid); });
+      var btnDel = document.createElement('button');
+      btnDel.className = 'btn-sm btn-del';
+      btnDel.innerHTML = '<i class="fas fa-trash"></i> ลบ';
+      btnDel.dataset.vid = v.id;
+      btnDel.addEventListener('click', function() { deleteVessel(this.dataset.vid); });
+      tdActions.appendChild(btnEdit);
+      tdActions.appendChild(btnDel);
+      row.appendChild(tdActions);
+
+      tbody.appendChild(row);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+
+    document.getElementById('adminTableFooter').textContent = 'รวม: ' + filtered.length + ' ลำ (ทั้งหมด ' + vessels.length + ' ลำ)';
+  }
+
+  // ============ FORM PANEL ============
+  var editingVesselId = null;
+
+  function buildFormFields() {
+    var body = document.getElementById('formBody');
+    while (body.firstChild) body.removeChild(body.firstChild);
+
+    var v = editingVesselId ? findVessel(editingVesselId) : null;
+
+    // Collect existing operators, owners, managements for datalists
+    var operators = {}, owners = {}, mgmts = {};
+    for (var i = 0; i < vessels.length; i++) {
+      if (vessels[i].operator) operators[vessels[i].operator] = 1;
+      if (vessels[i].shipOwner) owners[vessels[i].shipOwner] = 1;
+      if (vessels[i].shipManagement) mgmts[vessels[i].shipManagement] = 1;
+    }
+
+    var fields = [
+      { id: 'fName', label: 'ชื่อเรือ', type: 'text', required: true, value: v ? v.name : '', full: true },
+      { id: 'fIMO', label: 'IMO', type: 'text', value: v ? v.imo : '' },
+      { id: 'fMMSI', label: 'MMSI', type: 'text', value: v ? (v.mmsi || '') : '' },
+      { id: 'fOperator', label: 'ผู้ขนส่ง / Operator', type: 'text', value: v ? v.operator : '', datalist: Object.keys(operators), full: true },
+      { id: 'fShipOwner', label: 'Ship Owner', type: 'text', value: v ? (v.shipOwner || '') : '', datalist: Object.keys(owners), full: true },
+      { id: 'fShipMgmt', label: 'Ship Management', type: 'text', value: v ? (v.shipManagement || '') : '', datalist: Object.keys(mgmts), full: true },
+      { id: 'fType', label: 'ประเภทเรือ', type: 'select', value: v ? v.type : 'oil_tanker',
+        options: [
+          { v: 'oil_tanker', l: 'Oil Tanker' }, { v: 'product_tanker', l: 'Product Tanker' },
+          { v: 'chemical_tanker', l: 'Chemical Tanker' }, { v: 'lpg_carrier', l: 'LPG Carrier' },
+          { v: 'barge', l: 'Barge' }
+        ] },
+      { id: 'fIACS', label: 'IACS Class', type: 'select', value: v ? (v.iacsClass || '') : '',
+        options: [
+          { v: '', l: '-- เลือก --' }, { v: 'NK', l: 'NK' }, { v: 'TG', l: 'TG' },
+          { v: 'ABS', l: 'ABS' }, { v: 'BV', l: 'BV' }, { v: 'LR', l: 'LR' },
+          { v: 'DNV', l: 'DNV' }, { v: 'GL', l: 'GL' }, { v: 'CCS', l: 'CCS' }
+        ] },
+      { id: 'fYearBuilt', label: 'ปีสร้าง / YearBuilt', type: 'number', value: v ? (v.yearBuilt || '') : '' },
+      { id: 'fGrossTonnage', label: 'Gross Tonnage', type: 'number', value: v ? (v.grossTonnage || '') : '' },
+      { id: 'fDeadWeight', label: 'Dead Weight', type: 'number', value: v ? (v.deadWeight || '') : '' },
+      { id: 'fLength', label: 'Length (m)', type: 'number', value: v ? (v.lengthM || '') : '' },
+      { id: 'fBeam', label: 'Beam (m)', type: 'number', value: v ? (v.beamM || '') : '' },
+      { id: 'fFlag', label: 'Flag', type: 'text', value: v ? (v.flag || 'Thailand') : 'Thailand' }
+    ];
+
+    var currentRow = null;
+    var rowIdx = 0;
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      var group = document.createElement('div');
+      group.className = 'form-group';
+
+      var lbl = document.createElement('label');
+      lbl.setAttribute('for', f.id);
+      lbl.textContent = f.label;
+      if (f.required) {
+        var req = document.createElement('span');
+        req.className = 'req';
+        req.textContent = ' *';
+        lbl.appendChild(req);
+      }
+      group.appendChild(lbl);
+
+      var inp;
+      if (f.type === 'select') {
+        inp = document.createElement('select');
+        inp.id = f.id;
+        for (var j = 0; j < f.options.length; j++) {
+          var opt = document.createElement('option');
+          opt.value = f.options[j].v;
+          opt.textContent = f.options[j].l;
+          if (f.value === f.options[j].v) opt.selected = true;
+          inp.appendChild(opt);
+        }
+      } else {
+        inp = document.createElement('input');
+        inp.type = f.type;
+        inp.id = f.id;
+        inp.value = f.value;
+        if (f.datalist) {
+          var dlId = f.id + '_dl';
+          var dl = document.createElement('datalist');
+          dl.id = dlId;
+          for (var j = 0; j < f.datalist.length; j++) {
+            var dopt = document.createElement('option');
+            dopt.value = f.datalist[j];
+            dl.appendChild(dopt);
+          }
+          inp.setAttribute('list', dlId);
+          group.appendChild(dl);
+        }
+      }
+      group.appendChild(inp);
+
+      if (f.full) {
+        if (currentRow) { body.appendChild(currentRow); currentRow = null; rowIdx = 0; }
+        body.appendChild(group);
+      } else {
+        if (!currentRow) {
+          currentRow = document.createElement('div');
+          currentRow.className = 'form-row';
+          rowIdx = 0;
+        }
+        currentRow.appendChild(group);
+        rowIdx++;
+        if (rowIdx === 2) {
+          body.appendChild(currentRow);
+          currentRow = null;
+          rowIdx = 0;
+        }
+      }
+    }
+    if (currentRow) body.appendChild(currentRow);
+  }
+
+  function openAddForm() {
+    editingVesselId = null;
+    document.getElementById('formTitle').textContent = 'เพิ่มเรือใหม่';
+    buildFormFields();
+    document.getElementById('formOverlay').classList.add('open');
+    document.getElementById('formPanel').classList.add('open');
+  }
+
+  function openEditForm(id) {
+    editingVesselId = id;
+    var v = findVessel(id);
+    document.getElementById('formTitle').textContent = 'แก้ไขข้อมูลเรือ: ' + (v ? v.name : '');
+    buildFormFields();
+    document.getElementById('formOverlay').classList.add('open');
+    document.getElementById('formPanel').classList.add('open');
+  }
+
+  function closeForm() {
+    document.getElementById('formOverlay').classList.remove('open');
+    document.getElementById('formPanel').classList.remove('open');
+    editingVesselId = null;
+  }
+
+  function saveForm() {
+    var name = document.getElementById('fName').value.trim();
+    if (!name) {
+      document.getElementById('fName').classList.add('error');
+      var existing = document.getElementById('fName').parentNode.querySelector('.error-msg');
+      if (!existing) {
+        var em = document.createElement('div');
+        em.className = 'error-msg';
+        em.textContent = 'กรุณาระบุชื่อเรือ';
+        document.getElementById('fName').parentNode.appendChild(em);
+      }
+      return;
+    }
+    // Check duplicate name
+    for (var i = 0; i < vessels.length; i++) {
+      if (vessels[i].name.toLowerCase() === name.toLowerCase() && vessels[i].id !== editingVesselId) {
+        document.getElementById('fName').classList.add('error');
+        var existing = document.getElementById('fName').parentNode.querySelector('.error-msg');
+        if (!existing) {
+          var em = document.createElement('div');
+          em.className = 'error-msg';
+          em.textContent = 'ชื่อเรือซ้ำ';
+          document.getElementById('fName').parentNode.appendChild(em);
+        }
+        return;
+      }
+    }
+
+    var typeVal = document.getElementById('fType').value;
+    var cfg = {
+      name: name,
+      imo: document.getElementById('fIMO').value.trim(),
+      mmsi: document.getElementById('fMMSI').value.trim(),
+      operator: document.getElementById('fOperator').value.trim(),
+      shipOwner: document.getElementById('fShipOwner').value.trim(),
+      shipManagement: document.getElementById('fShipMgmt').value.trim(),
+      type: typeVal,
+      typeTh: TYPE_MAP[typeVal] || typeVal,
+      iacsClass: document.getElementById('fIACS').value,
+      yearBuilt: document.getElementById('fYearBuilt').value ? parseInt(document.getElementById('fYearBuilt').value) : '',
+      grossTonnage: document.getElementById('fGrossTonnage').value ? parseFloat(document.getElementById('fGrossTonnage').value) : '',
+      deadWeight: document.getElementById('fDeadWeight').value ? parseFloat(document.getElementById('fDeadWeight').value) : '',
+      lengthM: document.getElementById('fLength').value ? parseFloat(document.getElementById('fLength').value) : '',
+      beamM: document.getElementById('fBeam').value ? parseFloat(document.getElementById('fBeam').value) : '',
+      flag: document.getElementById('fFlag').value.trim() || 'Thailand'
+    };
+
+    if (editingVesselId) {
+      // Update existing
+      var v = findVessel(editingVesselId);
+      if (v) {
+        v.name = cfg.name; v.imo = cfg.imo; v.mmsi = cfg.mmsi;
+        v.operator = cfg.operator; v.shipOwner = cfg.shipOwner;
+        v.shipManagement = cfg.shipManagement; v.type = cfg.type;
+        v.typeTh = cfg.typeTh; v.iacsClass = cfg.iacsClass;
+        v.yearBuilt = cfg.yearBuilt; v.grossTonnage = cfg.grossTonnage;
+        v.deadWeight = cfg.deadWeight; v.lengthM = cfg.lengthM;
+        v.beamM = cfg.beamM; v.flag = cfg.flag;
+        // update dwt display
+        if (cfg.deadWeight) v.dwt = cfg.deadWeight.toLocaleString() + ' DWT';
+      }
+    } else {
+      // Add new
+      var newId = getNextVesselId();
+      var newV = {
+        id: newId, name: cfg.name, imo: cfg.imo, mmsi: cfg.mmsi,
+        operator: cfg.operator, shipOwner: cfg.shipOwner,
+        shipManagement: cfg.shipManagement, type: cfg.type, typeTh: cfg.typeTh,
+        iacsClass: cfg.iacsClass, yearBuilt: cfg.yearBuilt,
+        grossTonnage: cfg.grossTonnage, deadWeight: cfg.deadWeight,
+        lengthM: cfg.lengthM, beamM: cfg.beamM, flag: cfg.flag,
+        status: 'docked', statusTh: 'จอดเทียบท่า',
+        lat: 7 + Math.random() * 6, lng: 99 + Math.random() * 3,
+        speed: 0, heading: Math.floor(Math.random() * 360),
+        cargo: 'ว่าง', origin: '-', destination: '-',
+        eta: '-', dwt: cfg.deadWeight ? cfg.deadWeight.toLocaleString() + ' DWT' : '-',
+        trail: [], dataSource: 'manual', lastUpdate: new Date()
+      };
+      vessels.push(newV);
+    }
+
+    saveConfigToLS();
+    rebuildMapAndSidebar();
+    closeForm();
+  }
+
+  function deleteVessel(id) {
+    var v = findVessel(id);
+    if (!v) return;
+    if (!confirm('ลบเรือ "' + v.name + '" ออกจากระบบ?')) return;
+    // Remove from array
+    for (var i = 0; i < vessels.length; i++) {
+      if (vessels[i].id === id) { vessels.splice(i, 1); break; }
+    }
+    // Remove marker
+    if (markers[id]) {
+      if (map.hasLayer(markers[id])) map.removeLayer(markers[id]);
+      delete markers[id];
+    }
+    if (selectedVesselId === id) { selectedVesselId = null; clearRoute(); }
+    saveConfigToLS();
+    rebuildMapAndSidebar();
+  }
+
+  // ============ EXPORT JSON ============
+  function exportJson() {
+    var configs = [];
+    for (var i = 0; i < vessels.length; i++) configs.push(extractConfig(vessels[i]));
+    var blob = new Blob([JSON.stringify(configs, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = 'vessel-config.json';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+
+  // ============ IMPORT JSON ============
+  function importJson(file) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var data = JSON.parse(e.target.result);
+        if (Array.isArray(data) && data.length > 0) {
+          pendingImportData = data;
+          showImportPreview(data);
+        } else { alert('ไฟล์ JSON ไม่ถูกต้อง'); }
+      } catch(err) { alert('ไม่สามารถอ่านไฟล์ JSON: ' + err.message); }
+    };
+    reader.readAsText(file);
+  }
+
+  // ============ EXPORT EXCEL ============
+  function exportExcel() {
+    if (typeof XLSX === 'undefined') { alert('SheetJS library not loaded'); return; }
+    var rows = [];
+    for (var i = 0; i < vessels.length; i++) {
+      var v = vessels[i];
+      rows.push({
+        'ชื่อเรือ': v.name, 'IMO': v.imo, 'MMSI': v.mmsi || '',
+        'ผู้ขนส่ง': v.operator, 'Ship Owner': v.shipOwner || '',
+        'Ship Management': v.shipManagement || '', 'ประเภทเรือ': v.type,
+        'IACS Class': v.iacsClass || '', 'ปีสร้าง': v.yearBuilt || '',
+        'Gross Tonnage': v.grossTonnage || '', 'Dead Weight': v.deadWeight || '',
+        'Length (m)': v.lengthM || '', 'Beam (m)': v.beamM || '',
+        'Flag': v.flag || 'Thailand'
+      });
+    }
+    var ws = XLSX.utils.json_to_sheet(rows);
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Vessels');
+    XLSX.writeFile(wb, 'vessel-config.xlsx');
+  }
+
+  // ============ IMPORT EXCEL ============
+  var pendingImportData = null;
+
+  function importExcel(file) {
+    if (typeof XLSX === 'undefined') { alert('SheetJS library not loaded'); return; }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var wb = XLSX.read(e.target.result, { type: 'array' });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        var json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!json || json.length === 0) { alert('ไม่พบข้อมูลในไฟล์'); return; }
+        // Column mapping (case-insensitive)
+        var mapped = [];
+        var colMap = {
+          'name': 'name', 'ชื่อเรือ': 'name', 'vessel name': 'name', 'vesselname': 'name',
+          'imo': 'imo', 'mmsi': 'mmsi',
+          'operator': 'operator', 'ผู้ขนส่ง': 'operator',
+          'ship owner': 'shipOwner', 'shipowner': 'shipOwner', 'owner': 'shipOwner',
+          'ship management': 'shipManagement', 'shipmanagement': 'shipManagement', 'management': 'shipManagement',
+          'type': 'type', 'ประเภทเรือ': 'type', 'vessel type': 'type',
+          'iacs': 'iacsClass', 'iacs class': 'iacsClass', 'iacsclass': 'iacsClass', 'class': 'iacsClass',
+          'yearbuilt': 'yearBuilt', 'ปีสร้าง': 'yearBuilt', 'year built': 'yearBuilt', 'year': 'yearBuilt',
+          'gross tonnage': 'grossTonnage', 'grosstonnage': 'grossTonnage', 'gt': 'grossTonnage',
+          'dead weight': 'deadWeight', 'deadweight': 'deadWeight', 'dwt': 'deadWeight',
+          'length': 'lengthM', 'length (m)': 'lengthM',
+          'beam': 'beamM', 'beam (m)': 'beamM',
+          'flag': 'flag'
+        };
+        for (var r = 0; r < json.length; r++) {
+          var row = json[r];
+          var entry = {};
+          var keys = Object.keys(row);
+          for (var k = 0; k < keys.length; k++) {
+            var lk = keys[k].toLowerCase().trim();
+            if (colMap[lk]) entry[colMap[lk]] = row[keys[k]];
+          }
+          if (entry.name) {
+            entry.id = entry.id || '';
+            entry.typeTh = TYPE_MAP[entry.type] || entry.type || '';
+            mapped.push(entry);
+          }
+        }
+        if (mapped.length === 0) { alert('ไม่พบคอลัมน์ชื่อเรือ'); return; }
+        pendingImportData = mapped;
+        showImportPreview(mapped);
+      } catch(err) { alert('ไม่สามารถอ่านไฟล์: ' + err.message); }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function showImportPreview(data) {
+    var body = document.getElementById('importPreviewBody');
+    while (body.firstChild) body.removeChild(body.firstChild);
+
+    var info = document.createElement('p');
+    info.style.fontSize = '13px';
+    info.style.marginBottom = '8px';
+    info.textContent = 'พบ ' + data.length + ' รายการ';
+    body.appendChild(info);
+
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var headRow = document.createElement('tr');
+    var previewCols = ['#', 'ชื่อเรือ', 'ผู้ขนส่ง', 'Ship Owner', 'IACS', 'ปีสร้าง', 'Flag'];
+    for (var c = 0; c < previewCols.length; c++) {
+      var th = document.createElement('th');
+      th.textContent = previewCols[c];
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    var max = Math.min(data.length, 50);
+    for (var i = 0; i < max; i++) {
+      var d = data[i];
+      var row = document.createElement('tr');
+      var vals = [i + 1, d.name || '', d.operator || '', d.shipOwner || '', d.iacsClass || '', d.yearBuilt || '', d.flag || ''];
+      for (var c = 0; c < vals.length; c++) {
+        var td = document.createElement('td');
+        td.textContent = vals[c];
+        row.appendChild(td);
+      }
+      tbody.appendChild(row);
+    }
+    if (data.length > 50) {
+      var moreRow = document.createElement('tr');
+      var moreTd = document.createElement('td');
+      moreTd.colSpan = previewCols.length;
+      moreTd.textContent = '... อีก ' + (data.length - 50) + ' รายการ';
+      moreTd.style.textAlign = 'center';
+      moreTd.style.color = 'var(--text-light)';
+      moreRow.appendChild(moreTd);
+      tbody.appendChild(moreRow);
+    }
+    table.appendChild(tbody);
+    body.appendChild(table);
+
+    document.getElementById('importOverlay').classList.add('open');
+  }
+
+  function confirmImport() {
+    if (!pendingImportData) return;
+    var mode = 'merge';
+    var radios = document.querySelectorAll('input[name="importMode"]');
+    for (var i = 0; i < radios.length; i++) {
+      if (radios[i].checked) mode = radios[i].value;
+    }
+
+    if (mode === 'replace') {
+      // Replace all
+      var configs = [];
+      for (var i = 0; i < pendingImportData.length; i++) {
+        var d = pendingImportData[i];
+        configs.push({
+          id: d.id || getNextVesselId(),
+          name: d.name, imo: d.imo || '', mmsi: d.mmsi || '',
+          operator: d.operator || '', shipOwner: d.shipOwner || '',
+          shipManagement: d.shipManagement || '', type: d.type || 'oil_tanker',
+          typeTh: d.typeTh || TYPE_MAP[d.type] || d.type || '',
+          iacsClass: d.iacsClass || '', yearBuilt: d.yearBuilt || '',
+          grossTonnage: d.grossTonnage || '', deadWeight: d.deadWeight || '',
+          lengthM: d.lengthM || '', beamM: d.beamM || '', flag: d.flag || 'Thailand'
+        });
+      }
+      vessels = mergeConfigIntoVessels(configs);
+    } else {
+      // Merge: add new, update existing by name
+      for (var i = 0; i < pendingImportData.length; i++) {
+        var d = pendingImportData[i];
+        var existing = null;
+        for (var j = 0; j < vessels.length; j++) {
+          if (vessels[j].name.toLowerCase() === (d.name || '').toLowerCase()) {
+            existing = vessels[j]; break;
+          }
+        }
+        if (existing) {
+          // Update config fields
+          if (d.imo) existing.imo = d.imo;
+          if (d.mmsi) existing.mmsi = d.mmsi;
+          if (d.operator) existing.operator = d.operator;
+          if (d.shipOwner) existing.shipOwner = d.shipOwner;
+          if (d.shipManagement) existing.shipManagement = d.shipManagement;
+          if (d.type) { existing.type = d.type; existing.typeTh = TYPE_MAP[d.type] || d.type; }
+          if (d.iacsClass) existing.iacsClass = d.iacsClass;
+          if (d.yearBuilt) existing.yearBuilt = d.yearBuilt;
+          if (d.grossTonnage) existing.grossTonnage = d.grossTonnage;
+          if (d.deadWeight) { existing.deadWeight = d.deadWeight; existing.dwt = d.deadWeight + ' DWT'; }
+          if (d.lengthM) existing.lengthM = d.lengthM;
+          if (d.beamM) existing.beamM = d.beamM;
+          if (d.flag) existing.flag = d.flag;
+        } else if (d.name) {
+          // Add new
+          var newV = {
+            id: getNextVesselId(), name: d.name, imo: d.imo || '', mmsi: d.mmsi || '',
+            operator: d.operator || '', shipOwner: d.shipOwner || '',
+            shipManagement: d.shipManagement || '', type: d.type || 'oil_tanker',
+            typeTh: TYPE_MAP[d.type] || d.type || 'oil_tanker', iacsClass: d.iacsClass || '',
+            yearBuilt: d.yearBuilt || '', grossTonnage: d.grossTonnage || '',
+            deadWeight: d.deadWeight || '', lengthM: d.lengthM || '',
+            beamM: d.beamM || '', flag: d.flag || 'Thailand',
+            status: 'docked', statusTh: 'จอดเทียบท่า',
+            lat: 7 + Math.random() * 6, lng: 99 + Math.random() * 3,
+            speed: 0, heading: Math.floor(Math.random() * 360),
+            cargo: 'ว่าง', origin: '-', destination: '-',
+            eta: '-', dwt: d.deadWeight ? d.deadWeight + ' DWT' : '-',
+            trail: [], dataSource: 'manual', lastUpdate: new Date()
+          };
+          vessels.push(newV);
+        }
+      }
+    }
+
+    pendingImportData = null;
+    saveConfigToLS();
+    rebuildMapAndSidebar();
+    document.getElementById('importOverlay').classList.remove('open');
+  }
+
+  // ============ RESET CONFIG ============
+  function resetConfig() {
+    if (!confirm('รีเซ็ตข้อมูลเรือทั้งหมดเป็นค่าเริ่มต้น? ข้อมูลที่แก้ไขจะหายไป')) return;
+    localStorage.removeItem(LS_KEY);
+    // Restore default configs
+    vessels = mergeConfigIntoVessels(defaultVesselConfigs);
+    rebuildMapAndSidebar();
+  }
+
+  // ============ BIND ADMIN EVENTS ============
+  function bindAdminEvents() {
+    initSidebarTabs();
+
+    document.getElementById('btnAddVessel').addEventListener('click', openAddForm);
+    document.getElementById('formClose').addEventListener('click', closeForm);
+    document.getElementById('formCancel').addEventListener('click', closeForm);
+    document.getElementById('formOverlay').addEventListener('click', closeForm);
+    document.getElementById('formSave').addEventListener('click', saveForm);
+
+    document.getElementById('adminSearch').addEventListener('input', renderAdminTable);
+
+    document.getElementById('btnExportJson').addEventListener('click', exportJson);
+    document.getElementById('btnExportExcel').addEventListener('click', exportExcel);
+
+    document.getElementById('btnImportExcel').addEventListener('click', function() {
+      document.getElementById('importExcelInput').click();
+    });
+    document.getElementById('importExcelInput').addEventListener('change', function() {
+      if (this.files && this.files[0]) {
+        importExcel(this.files[0]);
+        this.value = '';
+      }
+    });
+
+    document.getElementById('importClose').addEventListener('click', function() {
+      document.getElementById('importOverlay').classList.remove('open');
+      pendingImportData = null;
+    });
+    document.getElementById('importCancelBtn').addEventListener('click', function() {
+      document.getElementById('importOverlay').classList.remove('open');
+      pendingImportData = null;
+    });
+    document.getElementById('importConfirmBtn').addEventListener('click', confirmImport);
+
+    document.getElementById('btnResetConfig').addEventListener('click', resetConfig);
+  }
+
+  // ============ INIT ============
+  window.addEventListener('DOMContentLoaded', function() {
+    // Save default configs before any LS override
+    defaultVesselConfigs = [];
+    for (var i = 0; i < vessels.length; i++) {
+      defaultVesselConfigs.push(extractConfig(vessels[i]));
+    }
+
+    // Load from localStorage if available
+    var savedConfigs = loadConfigFromLS();
+    if (savedConfigs && savedConfigs.length > 0) {
+      vessels = mergeConfigIntoVessels(savedConfigs);
+    }
+
+    initMap();
+    addVesselMarkers();
+    rebuildCompanyFilter();
+    renderVesselList();
+    bindEvents();
+    bindAdminEvents();
+    updateTime();
+    setInterval(updateTime, 1000);
+
+    // Simulate periodic sync updates
+    setInterval(function() {
+      dataSourceConfig.lastSync = new Date();
+      dataSourceConfig.lastPositionUpdate = new Date();
+    }, 30000);
+
+    // Hide loading
+    setTimeout(function() {
+      var overlay = document.getElementById('loading-overlay');
+      overlay.classList.add('fade-out');
+      setTimeout(function() { overlay.style.display = 'none'; }, 600);
+    }, 1500);
+  });
+})();
+</script>
+</body>
+</html>
